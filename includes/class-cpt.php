@@ -11,12 +11,9 @@ class Tailor_Made_CPT {
 
     const POST_TYPE = 'tt_event';
 
-    /**
-     * Register CPT.
-     */
-    public static function register(): void {
-        register_post_type( self::POST_TYPE, [
-            'labels' => [
+    public static function register() {
+        register_post_type( self::POST_TYPE, array(
+            'labels' => array(
                 'name'               => 'TT Events',
                 'singular_name'      => 'TT Event',
                 'menu_name'          => 'TT Events',
@@ -28,25 +25,25 @@ class Tailor_Made_CPT {
                 'search_items'       => 'Search Events',
                 'not_found'          => 'No events found.',
                 'not_found_in_trash' => 'No events found in Trash.',
-            ],
+            ),
             'public'              => true,
             'has_archive'         => true,
             'show_in_rest'        => true,
-            'show_in_menu'        => false, // We show under our own menu
-            'supports'            => [ 'title', 'editor', 'thumbnail', 'custom-fields' ],
-            'rewrite'             => [ 'slug' => 'events' ],
+            'show_in_menu'        => false,
+            'supports'            => array( 'title', 'editor', 'thumbnail', 'custom-fields' ),
+            'rewrite'             => array( 'slug' => 'events' ),
             'menu_icon'           => 'dashicons-tickets-alt',
             'capability_type'     => 'post',
             'exclude_from_search' => false,
             'publicly_queryable'  => true,
-        ] );
+        ) );
     }
 
     /**
-     * Meta keys stored per event.
+     * @return array
      */
-    public static function meta_keys(): array {
-        return [
+    public static function meta_keys() {
+        return array(
             '_tt_event_id',
             '_tt_event_series_id',
             '_tt_status',
@@ -77,13 +74,13 @@ class Tailor_Made_CPT {
             '_tt_revenue',
             '_tt_total_orders',
             '_tt_total_issued_tickets',
-            '_tt_ticket_types',       // JSON encoded array
-            '_tt_min_price',          // Lowest ticket price (cents)
-            '_tt_max_price',          // Highest ticket price (cents)
-            '_tt_total_capacity',     // Sum of all ticket type quantities
-            '_tt_tickets_remaining',  // Sum of remaining tickets
+            '_tt_ticket_types',
+            '_tt_min_price',
+            '_tt_max_price',
+            '_tt_total_capacity',
+            '_tt_tickets_remaining',
             '_tt_last_synced',
-            '_tt_raw_json',           // Full API response stored for debugging
-        ];
+            '_tt_raw_json',
+        );
     }
 }

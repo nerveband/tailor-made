@@ -25,6 +25,7 @@ require_once TAILOR_MADE_DIR . 'includes/class-cpt.php';
 require_once TAILOR_MADE_DIR . 'includes/class-sync-engine.php';
 require_once TAILOR_MADE_DIR . 'includes/class-admin.php';
 require_once TAILOR_MADE_DIR . 'includes/class-bricks-provider.php';
+require_once TAILOR_MADE_DIR . 'includes/class-github-updater.php';
 
 /**
  * Initialize plugin.
@@ -33,6 +34,7 @@ function tailor_made_init() {
     Tailor_Made_CPT::register();
     Tailor_Made_Admin::init();
     Tailor_Made_Bricks_Provider::init();
+    Tailor_Made_GitHub_Updater::init();
 }
 add_action( 'init', 'tailor_made_init' );
 

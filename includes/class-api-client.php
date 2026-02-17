@@ -11,17 +11,25 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Tailor_Made_API_Client {
 
-    private string $api_key;
-    private string $base_url = 'https://api.tickettailor.com/v1';
+    /** @var string */
+    private $api_key;
 
-    public function __construct( ?string $api_key = null ) {
-        $this->api_key = $api_key ?? get_option( 'tailor_made_api_key', '' );
+    /** @var string */
+    private $base_url = 'https://api.tickettailor.com/v1';
+
+    /**
+     * @param string|null $api_key
+     */
+    public function __construct( $api_key = null ) {
+        $this->api_key = $api_key ? $api_key : get_option( 'tailor_made_api_key', '' );
     }
 
     /**
      * Make an authenticated GET request.
+     *
+     * @return array|WP_Error
      */
-    private function get( string $endpoint, array $params = [] ): array|WP_Error {
+    private function get( $endpoint, $params = array() ) {
         if ( empty( $this->api_key ) ) {
             return new WP_Error( 'no_api_key', 'Ticket Tailor API key not configured.' );
         }
@@ -31,13 +39,13 @@ class Tailor_Made_API_Client {
             $url .= '?' . http_build_query( $params );
         }
 
-        $response = wp_remote_get( $url, [
-            'headers' => [
+        $response = wp_remote_get( $url, array(
+            'headers' => array(
                 'Authorization' => 'Basic ' . base64_encode( $this->api_key . ':' ),
                 'Accept'        => 'application/json',
-            ],
+            ),
             'timeout' => 30,
-        ] );
+        ) );
 
         if ( is_wp_error( $response ) ) {
             return $response;
@@ -47,10 +55,11 @@ class Tailor_Made_API_Client {
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
         if ( $code !== 200 ) {
+            $msg = isset( $body['message'] ) ? $body['message'] : "HTTP {$code}";
             return new WP_Error(
                 'api_error',
-                $body['message'] ?? "HTTP {$code}",
-                [ 'status' => $code, 'body' => $body ]
+                $msg,
+                array( 'status' => $code, 'body' => $body )
             );
         }
 
@@ -59,9 +68,11 @@ class Tailor_Made_API_Client {
 
     /**
      * Fetch all pages of a paginated endpoint.
+     *
+     * @return array|WP_Error
      */
-    private function get_all( string $endpoint, array $params = [] ): array|WP_Error {
-        $all  = [];
+    private function get_all( $endpoint, $params = array() ) {
+        $all  = array();
         $params['limit'] = 100;
 
         while ( true ) {
@@ -70,15 +81,14 @@ class Tailor_Made_API_Client {
                 return $result;
             }
 
-            $data = $result['data'] ?? [];
+            $data = isset( $result['data'] ) ? $result['data'] : array();
             $all  = array_merge( $all, $data );
 
-            $next = $result['links']['next'] ?? null;
+            $next = isset( $result['links']['next'] ) ? $result['links']['next'] : null;
             if ( ! $next || empty( $data ) ) {
                 break;
             }
 
-            // Extract starting_after cursor from last item
             $last_item = end( $data );
             $params['starting_after'] = $last_item['id'];
         }
@@ -86,87 +96,63 @@ class Tailor_Made_API_Client {
         return $all;
     }
 
-    /**
-     * Health check.
-     */
-    public function ping(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function ping() {
         return $this->get( '/ping' );
     }
 
-    /**
-     * Account overview.
-     */
-    public function overview(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function overview() {
         return $this->get( '/overview' );
     }
 
-    /**
-     * Get all events (all pages).
-     */
-    public function get_events(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_events() {
         return $this->get_all( '/events' );
     }
 
-    /**
-     * Get a single event by ID.
-     */
-    public function get_event( string $event_id ): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_event( $event_id ) {
         return $this->get( "/events/{$event_id}" );
     }
 
-    /**
-     * Get all event series.
-     */
-    public function get_event_series(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_event_series() {
         return $this->get_all( '/event_series' );
     }
 
-    /**
-     * Get a single event series.
-     */
-    public function get_event_series_by_id( string $series_id ): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_event_series_by_id( $series_id ) {
         return $this->get( "/event_series/{$series_id}" );
     }
 
-    /**
-     * Get all orders.
-     */
-    public function get_orders(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_orders() {
         return $this->get_all( '/orders' );
     }
 
-    /**
-     * Get all issued tickets.
-     */
-    public function get_issued_tickets(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_issued_tickets() {
         return $this->get_all( '/issued_tickets' );
     }
 
-    /**
-     * Get all vouchers.
-     */
-    public function get_vouchers(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_vouchers() {
         return $this->get_all( '/vouchers' );
     }
 
-    /**
-     * Get all products.
-     */
-    public function get_products(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_products() {
         return $this->get_all( '/products' );
     }
 
-    /**
-     * Get all checkout forms.
-     */
-    public function get_checkout_forms(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_checkout_forms() {
         return $this->get_all( '/checkout_forms' );
     }
 
-    /**
-     * Get store info.
-     */
-    public function get_stores(): array|WP_Error {
+    /** @return array|WP_Error */
+    public function get_stores() {
         return $this->get_all( '/stores' );
     }
 }
