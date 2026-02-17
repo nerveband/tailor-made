@@ -22,7 +22,7 @@ class Tailor_Made_GitHub_Updater {
     private $version;
 
     /** @var string */
-    private $github_repo = 'wavedepth/tailor-made';
+    private $github_repo = 'nerveband/tailor-made';
 
     /** @var string */
     private $cache_key = 'tailor_made_github_release';

@@ -191,6 +191,7 @@ class Tailor_Made_Sync_Engine {
             '_tt_ticket_types'         => wp_json_encode( $ticket_types ),
             '_tt_min_price'            => ! empty( $prices ) ? min( $prices ) : 0,
             '_tt_max_price'            => ! empty( $prices ) ? max( $prices ) : 0,
+            '_tt_price_display'        => $this->format_price_range( $prices ),
             '_tt_total_capacity'       => array_sum( $quantities ),
             '_tt_tickets_remaining'    => array_sum( $quantities ) - array_sum( $issued ),
             '_tt_last_synced'          => current_time( 'mysql' ),
@@ -237,6 +238,23 @@ class Tailor_Made_Sync_Engine {
 
         set_post_thumbnail( $post_id, $attachment_id );
         update_post_meta( $post_id, '_tt_image_header_source', $image_url );
+    }
+
+    private function format_price_range( $prices ) {
+        if ( empty( $prices ) ) {
+            return 'Free';
+        }
+        $min = min( $prices );
+        $max = max( $prices );
+        if ( $min === 0 && $max === 0 ) {
+            return 'Free';
+        }
+        $min_str = '$' . number_format( $min / 100, 0 );
+        if ( $min === $max ) {
+            return $min_str;
+        }
+        $max_str = '$' . number_format( $max / 100, 0 );
+        return $min_str . ' - ' . $max_str;
     }
 
     private function map_status( $tt_status ) {

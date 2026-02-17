@@ -81,7 +81,11 @@ class Tailor_Made_Bricks_Provider {
      * @param string $context
      * @return string
      */
-    public static function render_tag( $tag, $post, $context = 'text' ) {
+    public static function render_tag( $tag, $post = null, $context = 'text' ) {
+        if ( ! is_string( $tag ) ) {
+            return $tag;
+        }
+
         $name    = trim( $tag, '{}' );
         $all_tags = self::get_tags();
 
@@ -89,9 +93,13 @@ class Tailor_Made_Bricks_Provider {
             return $tag;
         }
 
+        if ( empty( $post ) ) {
+            return '';
+        }
+
         $post_id = is_object( $post ) ? $post->ID : intval( $post );
 
-        if ( get_post_type( $post_id ) !== Tailor_Made_CPT::POST_TYPE ) {
+        if ( $post_id <= 0 || get_post_type( $post_id ) !== Tailor_Made_CPT::POST_TYPE ) {
             return '';
         }
 
@@ -127,7 +135,7 @@ class Tailor_Made_Bricks_Provider {
      * @param string $context
      * @return string
      */
-    public static function render_content( $content, $post, $context = 'text' ) {
+    public static function render_content( $content, $post = null, $context = 'text' ) {
         if ( preg_match_all( '/\{(tt_[a-z_]+)\}/', $content, $matches ) ) {
             $all_tags = self::get_tags();
             foreach ( $matches[0] as $i => $full_match ) {
