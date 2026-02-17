@@ -49,11 +49,12 @@ ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp plugin deactivate tailo
 ### WordPress / Bricks
 
 - **Post type:** `tt_event` — registered with `show_in_menu => false` (shown under Tailor Made menu instead)
-- **Draft events:** Events with TT status `draft` sync as WP Draft posts. Query loops must explicitly include `post_status => any` or `draft` to show them on the front end
+- **Draft events:** TT `draft` events now map to WP `publish` (changed in v1.1.0) so they render on the front end. Previously mapped to WP `draft` which is invisible to non-logged-in users even with `post_status => any` (since draft has `exclude_from_search = true`)
 - **Meta key prefix:** All meta keys start with `_tt_` (underscore prefix = hidden from default custom fields UI)
 - **Dynamic data in Bricks:** Custom fields use `{cf__tt_fieldname}` syntax — note the **double underscore** (`cf_` + `_tt_`)
 - **Query loop filtering:** Use `s` parameter for title/content keyword search. Use Meta Queries for field-value filtering
 - **Bricks content storage:** Page content stored in `_bricks_page_content_2` post meta as a flat JSON array of elements with parent references
+- **CRITICAL — Bricks meta filter bypass:** Bricks hooks on `update_post_metadata` silently block external writes to `_bricks_page_content_2`. Three hooks intercept: `Bricks\Ajax::update_bricks_postmeta`, `Bricks\Ajax::sanitize_bricks_postmeta`, and `Bricks\Query_Filters::qf_update_post_metadata`. **You MUST use `$wpdb->update()` directly** to write Bricks content, then call `wp_cache_delete($post_id, 'post_meta')` and `clean_post_cache($post_id)` to clear caches. Using `update_post_meta()` will silently fail.
 
 ### Sync Engine
 
@@ -112,7 +113,32 @@ ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp cron event list --field
 ```
 
 ### Inject Bricks content into a page
-Use `wp eval` to get/modify `_bricks_page_content_2` post meta. Content is a flat JSON array — elements reference parents by ID, not nesting. Always use `array_splice` to insert at the right position.
+Content is a flat JSON array — elements reference parents by ID, not nesting. **Must use `$wpdb` directly** (not `update_post_meta`) due to Bricks meta filters that silently block external writes.
+
+```php
+// Read content
+$raw = $wpdb->get_var( $wpdb->prepare(
+    "SELECT meta_value FROM $wpdb->postmeta WHERE post_id = %d AND meta_key = %s",
+    $post_id, '_bricks_page_content_2'
+) );
+$content = maybe_unserialize( $raw );
+
+// Modify content...
+array_splice( $content, $insert_pos, 0, $new_elements );
+
+// Write directly to DB (bypasses Bricks filters)
+$wpdb->update(
+    $wpdb->postmeta,
+    array( 'meta_value' => maybe_serialize( $content ) ),
+    array( 'post_id' => $post_id, 'meta_key' => '_bricks_page_content_2' ),
+    array( '%s' ),
+    array( '%d', '%s' )
+);
+wp_cache_delete( $post_id, 'post_meta' );
+clean_post_cache( $post_id );
+```
+
+Best run via `wp eval-file` with a PHP file uploaded via SCP.
 
 ## Bricks Query Loop JSON Pattern
 
@@ -143,10 +169,28 @@ array(
 
 Child elements inside the loop use dynamic data:
 - `{post_title}` — event name
-- `{featured_image}` / `{featured_image_url}` — header image
+- `{featured_image}` — header image (use `useDynamicData` key, NOT `useDynamic`)
 - `{cf__tt_start_formatted}` — formatted date
 - `{cf__tt_price_display}` — price range
 - `{cf__tt_checkout_url}` — link for buttons
+
+**Image element dynamic data syntax:**
+```php
+'settings' => array(
+    'image' => array( 'useDynamicData' => '{featured_image}' ),
+    'tag'   => 'figure',
+)
+```
+Note: `useDynamicData` (not `useDynamic`) — Bricks silently ignores the wrong key.
+
+## Staging Pages
+
+| Page | ID | URL | Notes |
+|------|----|-----|-------|
+| Shamail | 58 | ts-staging.wavedepth.com/shamail/ | Has injected "Shamail Events" query loop section (filtered by `s: "Shamail"`) |
+| Events | 1453 | ts-staging.wavedepth.com/events/ | Shows all tt_events with `post_status: any` |
+
+All 5 TT events currently sync as WP `draft` posts — query loops MUST include `post_status: any` to display them.
 
 ## Testing Checklist
 

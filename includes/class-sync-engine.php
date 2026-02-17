@@ -309,8 +309,8 @@ class Tailor_Made_Sync_Engine {
             case 'published':
             case 'live':
             case 'past':
-                return 'publish';
             case 'draft':
+                return 'publish';
             default:
                 return 'draft';
         }
