@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: Tailor Made
- * Plugin URI: https://github.com/nerveband/tailor-made
+ * Plugin URI: https://github.com/wavedepth/tailor-made
  * Description: Unofficial Ticket Tailor full API integration for WordPress. Syncs events, ticket types, and more into WordPress for use with Bricks Builder dynamic data.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: wavedepth
  * Author URI: https://wavedepth.com
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TAILOR_MADE_VERSION', '1.0.0' );
+define( 'TAILOR_MADE_VERSION', '1.1.0' );
 define( 'TAILOR_MADE_FILE', __FILE__ );
 define( 'TAILOR_MADE_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TAILOR_MADE_URL', plugin_dir_url( __FILE__ ) );
@@ -22,6 +22,7 @@ define( 'TAILOR_MADE_URL', plugin_dir_url( __FILE__ ) );
 // Core classes
 require_once TAILOR_MADE_DIR . 'includes/class-api-client.php';
 require_once TAILOR_MADE_DIR . 'includes/class-cpt.php';
+require_once TAILOR_MADE_DIR . 'includes/class-sync-logger.php';
 require_once TAILOR_MADE_DIR . 'includes/class-sync-engine.php';
 require_once TAILOR_MADE_DIR . 'includes/class-admin.php';
 require_once TAILOR_MADE_DIR . 'includes/class-bricks-provider.php';
@@ -45,8 +46,15 @@ function tailor_made_activate() {
     Tailor_Made_CPT::register();
     flush_rewrite_rules();
 
+    // Create sync log table
+    Tailor_Made_Sync_Logger::create_table();
+
     if ( ! wp_next_scheduled( 'tailor_made_sync_cron' ) ) {
         wp_schedule_event( time(), 'hourly', 'tailor_made_sync_cron' );
+    }
+
+    if ( ! wp_next_scheduled( 'tailor_made_log_cleanup_cron' ) ) {
+        wp_schedule_event( time(), 'daily', 'tailor_made_log_cleanup_cron' );
     }
 }
 register_activation_hook( __FILE__, 'tailor_made_activate' );
@@ -56,14 +64,22 @@ register_activation_hook( __FILE__, 'tailor_made_activate' );
  */
 function tailor_made_deactivate() {
     wp_clear_scheduled_hook( 'tailor_made_sync_cron' );
+    wp_clear_scheduled_hook( 'tailor_made_log_cleanup_cron' );
     flush_rewrite_rules();
 }
 register_deactivation_hook( __FILE__, 'tailor_made_deactivate' );
 
 /**
- * Cron handler.
+ * Cron handler: sync events.
  */
 add_action( 'tailor_made_sync_cron', function () {
     $engine = new Tailor_Made_Sync_Engine();
     $engine->sync_all();
+} );
+
+/**
+ * Cron handler: purge old log entries.
+ */
+add_action( 'tailor_made_log_cleanup_cron', function () {
+    Tailor_Made_Sync_Logger::purge_old_entries();
 } );

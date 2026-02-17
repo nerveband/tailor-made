@@ -12,11 +12,16 @@ class Tailor_Made_Sync_Engine {
     /** @var Tailor_Made_API_Client */
     private $client;
 
+    /** @var Tailor_Made_Sync_Logger */
+    private $logger;
+
     /**
-     * @param Tailor_Made_API_Client|null $client
+     * @param Tailor_Made_API_Client|null  $client
+     * @param Tailor_Made_Sync_Logger|null $logger
      */
-    public function __construct( $client = null ) {
+    public function __construct( $client = null, $logger = null ) {
         $this->client = $client ? $client : new Tailor_Made_API_Client();
+        $this->logger = $logger ? $logger : new Tailor_Made_Sync_Logger();
     }
 
     /**
@@ -27,11 +32,21 @@ class Tailor_Made_Sync_Engine {
     public function sync_all() {
         $result = array( 'created' => 0, 'updated' => 0, 'deleted' => 0, 'errors' => array() );
 
+        // Log 1: Sync started
+        $this->logger->info( 'start', 'Sync started' );
+
         $events = $this->client->get_events();
         if ( is_wp_error( $events ) ) {
+            // Log 2: API fetch failed
+            $this->logger->error( 'error', 'API fetch failed: ' . $events->get_error_message(), array(
+                'details' => $events->get_error_data(),
+            ) );
             $result['errors'][] = $events->get_error_message();
             return $result;
         }
+
+        // Log 3: Fetched N events
+        $this->logger->info( 'fetched', sprintf( 'Fetched %d events from Ticket Tailor API', count( $events ) ) );
 
         $synced_tt_ids = array();
 
@@ -42,26 +57,58 @@ class Tailor_Made_Sync_Engine {
             }
 
             $synced_tt_ids[] = $tt_id;
-            $existing = $this->find_post_by_tt_id( $tt_id );
+            $event_name      = isset( $event['name'] ) ? $event['name'] : 'Untitled Event';
+            $existing        = $this->find_post_by_tt_id( $tt_id );
 
             if ( $existing ) {
                 $this->update_post( $existing->ID, $event );
                 $result['updated']++;
+
+                // Log 5: Updated event
+                $this->logger->info( 'updated', 'Updated: ' . $event_name, array(
+                    'tt_event_id' => $tt_id,
+                    'event_name'  => $event_name,
+                ) );
             } else {
                 $this->create_post( $event );
                 $result['created']++;
+
+                // Log 4: Created event
+                $this->logger->info( 'created', 'Created: ' . $event_name, array(
+                    'tt_event_id' => $tt_id,
+                    'event_name'  => $event_name,
+                ) );
             }
         }
 
         // Delete posts for events no longer in the API
         $orphans = $this->find_orphaned_posts( $synced_tt_ids );
         foreach ( $orphans as $orphan_id ) {
+            $orphan_name = get_the_title( $orphan_id );
+            $orphan_tt_id = get_post_meta( $orphan_id, '_tt_event_id', true );
+
             wp_delete_post( $orphan_id, true );
             $result['deleted']++;
+
+            // Log 6: Deleted orphan
+            $this->logger->warning( 'deleted', 'Deleted orphan: ' . $orphan_name, array(
+                'tt_event_id' => $orphan_tt_id,
+                'event_name'  => $orphan_name,
+            ) );
         }
 
         update_option( 'tailor_made_last_sync', current_time( 'mysql' ) );
         update_option( 'tailor_made_last_sync_result', $result );
+
+        // Log 7: Sync completed
+        $this->logger->info( 'end', sprintf(
+            'Sync completed — Created: %d, Updated: %d, Deleted: %d',
+            $result['created'],
+            $result['updated'],
+            $result['deleted']
+        ), array(
+            'details' => $result,
+        ) );
 
         return $result;
     }
