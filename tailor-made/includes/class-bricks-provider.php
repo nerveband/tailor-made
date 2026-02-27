@@ -46,6 +46,8 @@ class Tailor_Made_Bricks_Provider {
             'tt_total_orders'          => array( 'label' => __( 'TT Total Orders', 'tailor-made' ),           'group' => $group,  'meta' => '_tt_total_orders',    'type' => 'text' ),
             'tt_currency'              => array( 'label' => __( 'TT Currency', 'tailor-made' ),               'group' => $group,  'meta' => '_tt_currency',        'type' => 'text' ),
             'tt_timezone'              => array( 'label' => __( 'TT Timezone', 'tailor-made' ),               'group' => $group,  'meta' => '_tt_timezone',        'type' => 'text' ),
+            'tt_box_office_name'       => array( 'label' => __( 'TT Box Office Name', 'tailor-made' ),        'group' => $group,  'meta' => null,                  'type' => 'text' ),
+            'tt_box_office_slug'       => array( 'label' => __( 'TT Box Office Slug', 'tailor-made' ),        'group' => $group,  'meta' => null,                  'type' => 'text' ),
         );
     }
 
@@ -115,6 +117,16 @@ class Tailor_Made_Bricks_Provider {
             // HTML content — already sanitized via wp_kses_post at save time
             $p = get_post( $post_id );
             return $p ? $p->post_content : '';
+        }
+
+        if ( $name === 'tt_box_office_name' ) {
+            $terms = wp_get_post_terms( $post_id, 'tt_box_office', array( 'fields' => 'names' ) );
+            return ( ! is_wp_error( $terms ) && ! empty( $terms ) ) ? esc_html( $terms[0] ) : '';
+        }
+
+        if ( $name === 'tt_box_office_slug' ) {
+            $terms = wp_get_post_terms( $post_id, 'tt_box_office', array( 'fields' => 'slugs' ) );
+            return ( ! is_wp_error( $terms ) && ! empty( $terms ) ) ? esc_html( $terms[0] ) : '';
         }
 
         if ( $name === 'tt_min_price_formatted' || $name === 'tt_max_price_formatted' ) {
