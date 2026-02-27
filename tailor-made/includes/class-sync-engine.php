@@ -131,21 +131,22 @@ class Tailor_Made_Sync_Engine {
         $bo_slug = $box_office ? $box_office->slug : '';
 
         $log_prefix = $bo_id > 0 ? '[' . $bo_name . '] ' : '';
+        $log_bo     = $bo_id > 0 ? array( 'box_office_name' => $bo_name ) : array();
 
         // Log: Sync started.
-        $this->logger->info( 'start', $log_prefix . 'Sync started' );
+        $this->logger->info( 'start', $log_prefix . 'Sync started', $log_bo );
 
         $events = $this->client->get_events();
         if ( is_wp_error( $events ) ) {
-            $this->logger->error( 'error', $log_prefix . 'API fetch failed: ' . $events->get_error_message(), array(
+            $this->logger->error( 'error', $log_prefix . 'API fetch failed: ' . $events->get_error_message(), array_merge( $log_bo, array(
                 'details' => $events->get_error_data(),
-            ) );
+            ) ) );
             $result['errors'][] = $events->get_error_message();
             return $result;
         }
 
         // Log: Fetched N events.
-        $this->logger->info( 'fetched', $log_prefix . sprintf( 'Fetched %d events from Ticket Tailor API', count( $events ) ) );
+        $this->logger->info( 'fetched', $log_prefix . sprintf( 'Fetched %d events from Ticket Tailor API', count( $events ) ), $log_bo );
 
         $synced_tt_ids = array();
 
@@ -163,18 +164,18 @@ class Tailor_Made_Sync_Engine {
                 $this->update_post( $existing->ID, $event, $bo_id, $bo_slug );
                 $result['updated']++;
 
-                $this->logger->info( 'updated', $log_prefix . 'Updated: ' . $event_name, array(
+                $this->logger->info( 'updated', $log_prefix . 'Updated: ' . $event_name, array_merge( $log_bo, array(
                     'tt_event_id' => $tt_id,
                     'event_name'  => $event_name,
-                ) );
+                ) ) );
             } else {
                 $this->create_post( $event, $bo_id, $bo_slug );
                 $result['created']++;
 
-                $this->logger->info( 'created', $log_prefix . 'Created: ' . $event_name, array(
+                $this->logger->info( 'created', $log_prefix . 'Created: ' . $event_name, array_merge( $log_bo, array(
                     'tt_event_id' => $tt_id,
                     'event_name'  => $event_name,
-                ) );
+                ) ) );
             }
         }
 
@@ -205,7 +206,7 @@ class Tailor_Made_Sync_Engine {
             $this->logger->warning( 'skipped_delete', $log_prefix . sprintf(
                 'API returned 0 events but %d WP posts exist — skipping orphan deletion as a safety measure',
                 $total_bo_posts
-            ) );
+            ), $log_bo );
         } else {
             $orphans = $this->find_orphaned_posts( $synced_tt_ids, $bo_id );
             foreach ( $orphans as $orphan_id ) {
@@ -215,10 +216,10 @@ class Tailor_Made_Sync_Engine {
                 wp_delete_post( $orphan_id, true );
                 $result['deleted']++;
 
-                $this->logger->warning( 'deleted', $log_prefix . 'Deleted orphan: ' . $orphan_name, array(
+                $this->logger->warning( 'deleted', $log_prefix . 'Deleted orphan: ' . $orphan_name, array_merge( $log_bo, array(
                     'tt_event_id' => $orphan_tt_id,
                     'event_name'  => $orphan_name,
-                ) );
+                ) ) );
             }
         }
 
@@ -235,9 +236,9 @@ class Tailor_Made_Sync_Engine {
             $result['created'],
             $result['updated'],
             $result['deleted']
-        ), array(
+        ), array_merge( $log_bo, array(
             'details' => $result,
-        ) );
+        ) ) );
 
         return $result;
     }
