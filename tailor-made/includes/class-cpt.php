@@ -56,11 +56,32 @@ class Tailor_Made_CPT {
     }
 
     /**
+     * Register the tt_box_office taxonomy.
+     */
+    public static function register_taxonomy() {
+        register_taxonomy( 'tt_box_office', self::POST_TYPE, array(
+            'labels' => array(
+                'name'          => __( 'Box Offices', 'tailor-made' ),
+                'singular_name' => __( 'Box Office', 'tailor-made' ),
+                'menu_name'     => __( 'Box Offices', 'tailor-made' ),
+            ),
+            'public'            => true,
+            'hierarchical'      => false,
+            'show_ui'           => false,
+            'show_in_menu'      => false,
+            'show_in_rest'      => true,
+            'show_admin_column' => true,
+            'rewrite'           => array( 'slug' => 'box-office' ),
+        ) );
+    }
+
+    /**
      * @return array
      */
     public static function meta_keys() {
         return array(
             '_tt_event_id',
+            '_tt_box_office_id',
             '_tt_event_series_id',
             '_tt_status',
             '_tt_currency',
