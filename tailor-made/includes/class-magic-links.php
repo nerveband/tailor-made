@@ -22,6 +22,7 @@ class Tailor_Made_Magic_Links {
      */
     public static function init(): void {
         add_shortcode( 'tt_roster', [ __CLASS__, 'shortcode_roster' ] );
+        add_shortcode( 'tt_roster_box_office', [ __CLASS__, 'shortcode_roster_box_office' ] );
         add_action( 'wp_head', [ __CLASS__, 'maybe_noindex' ] );
     }
 
@@ -127,7 +128,16 @@ class Tailor_Made_Magic_Links {
             return new WP_Error( 'no_event_id', __( 'No Ticket Tailor event ID found for this post.', 'tailor-made' ) );
         }
 
-        $client  = new Tailor_Made_API_Client();
+        // Look up the correct API key for this event's box office.
+        $bo_id   = get_post_meta( $post_id, '_tt_box_office_id', true );
+        $api_key = null;
+        if ( $bo_id ) {
+            $bo = Tailor_Made_Box_Office_Manager::get( (int) $bo_id );
+            if ( $bo ) {
+                $api_key = $bo->api_key;
+            }
+        }
+        $client  = new Tailor_Made_API_Client( $api_key );
         $tickets = $client->get_issued_tickets_for_event( $tt_event_id );
 
         if ( is_wp_error( $tickets ) ) {
@@ -379,6 +389,151 @@ class Tailor_Made_Magic_Links {
                     var text = rows[i].textContent.toLowerCase();
                     rows[i].style.display = text.indexOf(term) !== -1 ? '' : 'none';
                 }
+            });
+        })();
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    // -------------------------------------------------------------------------
+    // Shortcode: [tt_roster_box_office]
+    // -------------------------------------------------------------------------
+
+    /**
+     * Render a grouped roster for all events in a box office.
+     * Accessed via a box_office_token query parameter.
+     */
+    public static function shortcode_roster_box_office( $atts ): string {
+        $token = isset( $_GET['box_office_token'] ) ? preg_replace( '/[^a-f0-9]/', '', $_GET['box_office_token'] ) : '';
+
+        if ( empty( $token ) || strlen( $token ) < 32 ) {
+            return self::render_error( __( 'Invalid or expired link.', 'tailor-made' ) );
+        }
+
+        // Find box office by roster_token.
+        global $wpdb;
+        $bo = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM " . Tailor_Made_Box_Office_Manager::table_name() . " WHERE roster_token = %s AND status = 'active'",
+            $token
+        ) );
+
+        if ( ! $bo ) {
+            return self::render_error( __( 'Invalid or expired link.', 'tailor-made' ) );
+        }
+
+        $bo->api_key = Tailor_Made_Box_Office_Manager::decrypt_api_key( $bo->api_key );
+
+        self::$rendering_roster = true;
+
+        wp_enqueue_style(
+            'tailor-made-roster',
+            TAILOR_MADE_URL . 'assets/css/roster.css',
+            array(),
+            TAILOR_MADE_VERSION
+        );
+
+        // Get all events for this box office.
+        $events = get_posts( array(
+            'post_type'      => 'tt_event',
+            'numberposts'    => -1,
+            'post_status'    => 'any',
+            'meta_key'       => '_tt_start_unix',
+            'orderby'        => 'meta_value_num',
+            'order'          => 'ASC',
+            'meta_query'     => array(
+                array(
+                    'key'   => '_tt_box_office_id',
+                    'value' => $bo->id,
+                ),
+            ),
+        ) );
+
+        if ( empty( $events ) ) {
+            return self::render_error( __( 'No events found for this box office.', 'tailor-made' ) );
+        }
+
+        // Fetch roster data for each event.
+        $all_rosters    = array();
+        $total_attendees = 0;
+
+        foreach ( $events as $event_post ) {
+            $roster = self::get_roster_data( $event_post->ID );
+            if ( ! is_wp_error( $roster ) ) {
+                $all_rosters[] = $roster;
+                $total_attendees += $roster['total'];
+            }
+        }
+
+        return self::render_box_office_roster( $bo->name, $all_rosters, $total_attendees );
+    }
+
+    /**
+     * Render grouped roster HTML for a box office (all events).
+     */
+    private static function render_box_office_roster( string $bo_name, array $rosters, int $total ): string {
+        ob_start();
+        ?>
+        <div class="tt-roster">
+            <div class="tt-roster__header">
+                <h2 class="tt-roster__title"><?php echo esc_html( $bo_name ); ?> — All Events Roster</h2>
+                <p>Total attendees across all events: <strong><?php echo esc_html( $total ); ?></strong></p>
+            </div>
+
+            <input type="text" class="tt-roster__search" placeholder="<?php esc_attr_e( 'Search all attendees...', 'tailor-made' ); ?>" />
+
+            <?php foreach ( $rosters as $roster ) : ?>
+                <div class="tt-roster__event-section" style="margin-top: 30px;">
+                    <h3><?php echo esc_html( $roster['event_name'] ); ?></h3>
+                    <p>
+                        <?php echo esc_html( $roster['event_date'] ); ?>
+                        <?php if ( $roster['venue'] ) : ?> — <?php echo esc_html( $roster['venue'] ); ?><?php endif; ?>
+                        &bull; <?php echo esc_html( $roster['total'] ); ?> attendees
+                    </p>
+
+                    <div class="tt-roster__table-wrap">
+                        <table class="tt-roster__table">
+                            <thead>
+                                <tr>
+                                    <th><?php esc_html_e( 'Name', 'tailor-made' ); ?></th>
+                                    <th><?php esc_html_e( 'Email', 'tailor-made' ); ?></th>
+                                    <th><?php esc_html_e( 'Ticket', 'tailor-made' ); ?></th>
+                                    <th><?php esc_html_e( 'Status', 'tailor-made' ); ?></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if ( empty( $roster['attendees'] ) ) : ?>
+                                    <tr><td colspan="4"><?php esc_html_e( 'No attendees yet.', 'tailor-made' ); ?></td></tr>
+                                <?php else : ?>
+                                    <?php foreach ( $roster['attendees'] as $a ) : ?>
+                                    <tr>
+                                        <td><?php echo esc_html( trim( $a['first_name'] . ' ' . $a['last_name'] ) ); ?></td>
+                                        <td><?php echo esc_html( $a['email'] ); ?></td>
+                                        <td><?php echo esc_html( $a['ticket_type'] ); ?></td>
+                                        <td><?php echo esc_html( ucfirst( $a['status'] === 'void' ? 'voided' : $a['status'] ) ); ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+
+        <script>
+        (function() {
+            var search = document.querySelector('.tt-roster__search');
+            if (!search) return;
+            var tables = document.querySelectorAll('.tt-roster__table');
+            search.addEventListener('input', function() {
+                var term = this.value.toLowerCase();
+                tables.forEach(function(table) {
+                    var rows = table.querySelectorAll('tbody tr');
+                    for (var i = 0; i < rows.length; i++) {
+                        rows[i].style.display = rows[i].textContent.toLowerCase().indexOf(term) !== -1 ? '' : 'none';
+                    }
+                });
             });
         })();
         </script>
