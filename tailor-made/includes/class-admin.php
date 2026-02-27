@@ -24,6 +24,13 @@ class Tailor_Made_Admin {
         add_action( 'wp_ajax_tailor_made_generate_roster_link', [ __CLASS__, 'ajax_generate_roster_link' ] );
         add_action( 'wp_ajax_tailor_made_rotate_roster_link', [ __CLASS__, 'ajax_rotate_roster_link' ] );
         add_action( 'wp_ajax_tailor_made_revoke_roster_link', [ __CLASS__, 'ajax_revoke_roster_link' ] );
+
+        // Box Office management AJAX.
+        add_action( 'wp_ajax_tailor_made_add_box_office', [ __CLASS__, 'ajax_add_box_office' ] );
+        add_action( 'wp_ajax_tailor_made_edit_box_office', [ __CLASS__, 'ajax_edit_box_office' ] );
+        add_action( 'wp_ajax_tailor_made_delete_box_office', [ __CLASS__, 'ajax_delete_box_office' ] );
+        add_action( 'wp_ajax_tailor_made_test_box_office', [ __CLASS__, 'ajax_test_box_office' ] );
+        add_action( 'wp_ajax_tailor_made_toggle_box_office', [ __CLASS__, 'ajax_toggle_box_office' ] );
     }
 
     /**
@@ -53,10 +60,6 @@ class Tailor_Made_Admin {
      * Register settings.
      */
     public static function register_settings(): void {
-        register_setting( 'tailor_made_settings', 'tailor_made_api_key', [
-            'sanitize_callback' => 'sanitize_text_field',
-        ] );
-
         register_setting( 'tailor_made_settings', 'tailor_made_sync_interval', [
             'sanitize_callback' => 'sanitize_text_field',
             'default'           => 'hourly',
@@ -78,9 +81,7 @@ class Tailor_Made_Admin {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $engine = new Tailor_Made_Sync_Engine();
-        $result = $engine->sync_all();
-
+        $result = Tailor_Made_Sync_Engine::sync_all_box_offices();
         wp_send_json_success( $result );
     }
 
@@ -94,19 +95,20 @@ class Tailor_Made_Admin {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $client = new Tailor_Made_API_Client();
-        $ping   = $client->ping();
-
-        if ( is_wp_error( $ping ) ) {
-            wp_send_json_error( $ping->get_error_message() );
+        $box_offices = Tailor_Made_Box_Office_Manager::get_all( 'active' );
+        if ( empty( $box_offices ) ) {
+            wp_send_json_error( 'No box offices configured.' );
         }
 
+        $bo     = $box_offices[0];
+        $client = new Tailor_Made_API_Client( $bo->api_key );
         $overview = $client->overview();
+
         if ( is_wp_error( $overview ) ) {
-            wp_send_json_success( [ 'ping' => $ping, 'overview' => null ] );
+            wp_send_json_error( $overview->get_error_message() );
         }
 
-        wp_send_json_success( [ 'ping' => $ping, 'overview' => $overview ] );
+        wp_send_json_success( array( 'ping' => true, 'overview' => $overview ) );
     }
 
     /**
@@ -119,21 +121,51 @@ class Tailor_Made_Admin {
             wp_send_json_error( 'Unauthorized' );
         }
 
-        $client = new Tailor_Made_API_Client();
-        $tt_events = $client->get_events();
+        // Collect TT events from all active box offices.
+        $box_offices = Tailor_Made_Box_Office_Manager::get_all( 'active' );
+        $all_tt_events = array();
+        $tt_total = 0;
 
-        if ( is_wp_error( $tt_events ) ) {
-            wp_send_json_error( 'API error: ' . $tt_events->get_error_message() );
+        if ( ! empty( $box_offices ) ) {
+            foreach ( $box_offices as $bo ) {
+                $client    = new Tailor_Made_API_Client( $bo->api_key );
+                $tt_events = $client->get_events();
+
+                if ( is_wp_error( $tt_events ) ) {
+                    continue;
+                }
+
+                foreach ( $tt_events as $event ) {
+                    $event['_bo_name'] = $bo->name;
+                    $event['_bo_id']   = $bo->id;
+                    $all_tt_events[]   = $event;
+                }
+                $tt_total += count( $tt_events );
+            }
+        } else {
+            // Legacy fallback: single API key.
+            $client    = new Tailor_Made_API_Client();
+            $tt_events = $client->get_events();
+
+            if ( is_wp_error( $tt_events ) ) {
+                wp_send_json_error( 'API error: ' . $tt_events->get_error_message() );
+            }
+
+            foreach ( $tt_events as $event ) {
+                $event['_bo_name'] = '';
+                $all_tt_events[]   = $event;
+            }
+            $tt_total = count( $tt_events );
         }
 
-        // Get all WP posts
+        // Get all WP posts.
         $wp_posts = get_posts( array(
             'post_type'   => Tailor_Made_CPT::POST_TYPE,
             'numberposts' => -1,
             'post_status' => 'any',
         ) );
 
-        // Index WP posts by TT event ID
+        // Index WP posts by TT event ID.
         $wp_by_tt_id = array();
         foreach ( $wp_posts as $post ) {
             $tt_id = get_post_meta( $post->ID, '_tt_event_id', true );
@@ -142,9 +174,9 @@ class Tailor_Made_Admin {
             }
         }
 
-        // Index TT events by ID
+        // Index TT events by ID.
         $tt_by_id = array();
-        foreach ( $tt_events as $event ) {
+        foreach ( $all_tt_events as $event ) {
             if ( isset( $event['id'] ) ) {
                 $tt_by_id[ $event['id'] ] = $event;
             }
@@ -152,17 +184,19 @@ class Tailor_Made_Admin {
 
         $rows = array();
 
-        // TT events: check if synced in WP
-        foreach ( $tt_events as $event ) {
-            $tt_id  = isset( $event['id'] ) ? $event['id'] : '';
-            $name   = isset( $event['name'] ) ? $event['name'] : 'Untitled';
-            $status = isset( $event['status'] ) ? $event['status'] : 'unknown';
+        // TT events: check if synced in WP.
+        foreach ( $all_tt_events as $event ) {
+            $tt_id   = isset( $event['id'] ) ? $event['id'] : '';
+            $name    = isset( $event['name'] ) ? $event['name'] : 'Untitled';
+            $status  = isset( $event['status'] ) ? $event['status'] : 'unknown';
+            $bo_name = isset( $event['_bo_name'] ) ? $event['_bo_name'] : '';
 
             if ( isset( $wp_by_tt_id[ $tt_id ] ) ) {
                 $post        = $wp_by_tt_id[ $tt_id ];
                 $last_synced = get_post_meta( $post->ID, '_tt_last_synced', true );
                 $rows[] = array(
                     'name'        => $name,
+                    'box_office'  => $bo_name,
                     'tt_status'   => $status,
                     'wp_status'   => $post->post_status,
                     'sync_status' => 'synced',
@@ -171,22 +205,24 @@ class Tailor_Made_Admin {
             } else {
                 $rows[] = array(
                     'name'        => $name,
+                    'box_office'  => $bo_name,
                     'tt_status'   => $status,
-                    'wp_status'   => '—',
+                    'wp_status'   => "\xe2\x80\x94",
                     'sync_status' => 'pending',
-                    'last_synced' => '—',
+                    'last_synced' => "\xe2\x80\x94",
                 );
             }
         }
 
-        // WP posts not in TT (orphans)
+        // WP posts not in TT (orphans).
         foreach ( $wp_posts as $post ) {
             $tt_id = get_post_meta( $post->ID, '_tt_event_id', true );
             if ( $tt_id && ! isset( $tt_by_id[ $tt_id ] ) ) {
                 $last_synced = get_post_meta( $post->ID, '_tt_last_synced', true );
                 $rows[] = array(
                     'name'        => $post->post_title,
-                    'tt_status'   => '—',
+                    'box_office'  => '',
+                    'tt_status'   => "\xe2\x80\x94",
                     'wp_status'   => $post->post_status,
                     'sync_status' => 'orphaned',
                     'last_synced' => $last_synced ? $last_synced : 'Unknown',
@@ -196,8 +232,206 @@ class Tailor_Made_Admin {
 
         wp_send_json_success( array(
             'rows'     => $rows,
-            'tt_count' => count( $tt_events ),
+            'tt_count' => $tt_total,
             'wp_count' => count( $wp_posts ),
+        ) );
+    }
+
+    /* ------------------------------------------------------------------
+     * Box Office AJAX handlers
+     * ----------------------------------------------------------------*/
+
+    /**
+     * AJAX: Add a new box office by testing its API key first.
+     */
+    public static function ajax_add_box_office(): void {
+        check_ajax_referer( 'tailor_made_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $api_key = isset( $_POST['api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) : '';
+        if ( empty( $api_key ) ) {
+            wp_send_json_error( 'API key is required.' );
+        }
+
+        // Test the API key by calling overview.
+        $client   = new Tailor_Made_API_Client( $api_key );
+        $overview = $client->overview();
+
+        if ( is_wp_error( $overview ) ) {
+            wp_send_json_error( 'API key test failed: ' . $overview->get_error_message() );
+        }
+
+        $name     = isset( $overview['box_office_name'] ) ? $overview['box_office_name'] : 'Box Office';
+        $currency = 'usd';
+        if ( isset( $overview['currency'] ) && isset( $overview['currency']['code'] ) ) {
+            $currency = $overview['currency']['code'];
+        }
+
+        $insert_id = Tailor_Made_Box_Office_Manager::add( $name, $api_key, $currency );
+
+        if ( false === $insert_id ) {
+            wp_send_json_error( 'Failed to save box office. Check database.' );
+        }
+
+        wp_send_json_success( array(
+            'id'       => $insert_id,
+            'name'     => $name,
+            'currency' => strtoupper( $currency ),
+            'message'  => 'Box office "' . $name . '" added successfully.',
+        ) );
+    }
+
+    /**
+     * AJAX: Edit an existing box office (name and/or API key).
+     */
+    public static function ajax_edit_box_office(): void {
+        check_ajax_referer( 'tailor_made_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $box_office_id = isset( $_POST['box_office_id'] ) ? absint( $_POST['box_office_id'] ) : 0;
+        if ( ! $box_office_id ) {
+            wp_send_json_error( 'Invalid box office ID.' );
+        }
+
+        $bo = Tailor_Made_Box_Office_Manager::get( $box_office_id );
+        if ( ! $bo ) {
+            wp_send_json_error( 'Box office not found.' );
+        }
+
+        $update_data = array();
+
+        $name = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+        if ( ! empty( $name ) ) {
+            $update_data['name'] = $name;
+        }
+
+        $new_api_key = isset( $_POST['api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) : '';
+        if ( ! empty( $new_api_key ) ) {
+            // Test the new key first.
+            $client   = new Tailor_Made_API_Client( $new_api_key );
+            $overview = $client->overview();
+
+            if ( is_wp_error( $overview ) ) {
+                wp_send_json_error( 'New API key test failed: ' . $overview->get_error_message() );
+            }
+
+            $update_data['api_key'] = $new_api_key;
+
+            // Update currency from the new key's overview.
+            if ( isset( $overview['currency'] ) && isset( $overview['currency']['code'] ) ) {
+                $update_data['currency'] = $overview['currency']['code'];
+            }
+        }
+
+        if ( empty( $update_data ) ) {
+            wp_send_json_error( 'No changes provided.' );
+        }
+
+        $updated = Tailor_Made_Box_Office_Manager::update( $box_office_id, $update_data );
+
+        if ( ! $updated ) {
+            wp_send_json_error( 'Failed to update box office.' );
+        }
+
+        wp_send_json_success( array( 'message' => 'Box office updated.' ) );
+    }
+
+    /**
+     * AJAX: Delete a box office.
+     */
+    public static function ajax_delete_box_office(): void {
+        check_ajax_referer( 'tailor_made_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $box_office_id = isset( $_POST['box_office_id'] ) ? absint( $_POST['box_office_id'] ) : 0;
+        if ( ! $box_office_id ) {
+            wp_send_json_error( 'Invalid box office ID.' );
+        }
+
+        $delete_events = isset( $_POST['delete_events'] ) && '1' === $_POST['delete_events'];
+
+        $deleted = Tailor_Made_Box_Office_Manager::delete( $box_office_id, $delete_events );
+
+        if ( ! $deleted ) {
+            wp_send_json_error( 'Failed to delete box office.' );
+        }
+
+        wp_send_json_success( array( 'message' => 'Box office deleted.' ) );
+    }
+
+    /**
+     * AJAX: Test a specific box office's API connection.
+     */
+    public static function ajax_test_box_office(): void {
+        check_ajax_referer( 'tailor_made_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $box_office_id = isset( $_POST['box_office_id'] ) ? absint( $_POST['box_office_id'] ) : 0;
+        if ( ! $box_office_id ) {
+            wp_send_json_error( 'Invalid box office ID.' );
+        }
+
+        $bo = Tailor_Made_Box_Office_Manager::get( $box_office_id );
+        if ( ! $bo ) {
+            wp_send_json_error( 'Box office not found.' );
+        }
+
+        $client   = new Tailor_Made_API_Client( $bo->api_key );
+        $overview = $client->overview();
+
+        if ( is_wp_error( $overview ) ) {
+            wp_send_json_error( 'Connection failed: ' . $overview->get_error_message() );
+        }
+
+        wp_send_json_success( array(
+            'message'  => 'Connected!',
+            'overview' => $overview,
+        ) );
+    }
+
+    /**
+     * AJAX: Toggle a box office between active and paused.
+     */
+    public static function ajax_toggle_box_office(): void {
+        check_ajax_referer( 'tailor_made_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $box_office_id = isset( $_POST['box_office_id'] ) ? absint( $_POST['box_office_id'] ) : 0;
+        if ( ! $box_office_id ) {
+            wp_send_json_error( 'Invalid box office ID.' );
+        }
+
+        $bo = Tailor_Made_Box_Office_Manager::get( $box_office_id );
+        if ( ! $bo ) {
+            wp_send_json_error( 'Box office not found.' );
+        }
+
+        $new_status = ( 'active' === $bo->status ) ? 'paused' : 'active';
+
+        $updated = Tailor_Made_Box_Office_Manager::update( $box_office_id, array( 'status' => $new_status ) );
+
+        if ( ! $updated ) {
+            wp_send_json_error( 'Failed to toggle status.' );
+        }
+
+        wp_send_json_success( array(
+            'status'  => $new_status,
+            'message' => 'Box office is now ' . $new_status . '.',
         ) );
     }
 
@@ -349,55 +583,80 @@ class Tailor_Made_Admin {
      * Dashboard Tab
      */
     private static function render_tab_dashboard(): void {
-        $api_key     = get_option( 'tailor_made_api_key', '' );
+        $box_offices = Tailor_Made_Box_Office_Manager::get_all();
         $last_sync   = get_option( 'tailor_made_last_sync', 'Never' );
-        $last_result = get_option( 'tailor_made_last_sync_result', [] );
+        $last_result = get_option( 'tailor_made_last_sync_result', array() );
         $event_count = wp_count_posts( Tailor_Made_CPT::POST_TYPE );
         $total       = ( $event_count->publish ?? 0 ) + ( $event_count->draft ?? 0 );
         $next_cron   = wp_next_scheduled( 'tailor_made_sync_cron' );
         $nonce       = wp_create_nonce( 'tailor_made_nonce' );
         ?>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
 
-            <!-- Settings -->
-            <div class="postbox" style="padding: 15px;">
-                <h2><?php esc_html_e( 'API Settings', 'tailor-made' ); ?></h2>
-                <form method="post" action="options.php">
-                    <?php settings_fields( 'tailor_made_settings' ); ?>
-                    <table class="form-table">
-                        <tr>
-                            <th><?php esc_html_e( 'API Key', 'tailor-made' ); ?></th>
-                            <td>
-                                <input type="password" name="tailor_made_api_key"
-                                       value="<?php echo esc_attr( $api_key ); ?>"
-                                       class="regular-text" id="tm-api-key" />
-                                <button type="button" class="button" onclick="
-                                    var el = document.getElementById('tm-api-key');
-                                    el.type = el.type === 'password' ? 'text' : 'password';
-                                "><?php esc_html_e( 'Show/Hide', 'tailor-made' ); ?></button>
-                                <p class="description"><?php esc_html_e( 'Your Ticket Tailor API key (starts with sk_)', 'tailor-made' ); ?></p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Uninstall', 'tailor-made' ); ?></th>
-                            <td>
-                                <label>
-                                    <input type="checkbox" name="tailor_made_delete_events_on_uninstall" value="1"
-                                        <?php checked( get_option( 'tailor_made_delete_events_on_uninstall', 0 ) ); ?> />
-                                    <?php esc_html_e( 'Delete all synced events when plugin is removed', 'tailor-made' ); ?>
-                                </label>
-                                <p class="description"><?php esc_html_e( 'When checked, deleting this plugin will also remove all TT Event posts and their metadata.', 'tailor-made' ); ?></p>
-                            </td>
-                        </tr>
-                    </table>
-                    <?php submit_button( __( 'Save Settings', 'tailor-made' ) ); ?>
-                </form>
+        <!-- Box Offices -->
+        <div class="postbox" style="padding: 15px; margin-bottom: 20px;">
+            <h2><?php esc_html_e( 'Box Offices', 'tailor-made' ); ?></h2>
+            <p><?php esc_html_e( 'Manage your Ticket Tailor box offices. Each box office has its own API key and syncs independently.', 'tailor-made' ); ?></p>
 
-                <hr />
+            <?php if ( ! empty( $box_offices ) ) : ?>
+            <table class="widefat striped" style="margin-bottom: 15px;" id="tm-bo-table">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Name', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'Slug', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'API Key', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'Currency', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'Events', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'Last Sync', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'Status', 'tailor-made' ); ?></th>
+                        <th><?php esc_html_e( 'Actions', 'tailor-made' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $box_offices as $bo ) :
+                        $bo_event_count = Tailor_Made_Box_Office_Manager::get_event_count( $bo->id );
+                        $masked_key     = Tailor_Made_Box_Office_Manager::mask_api_key( $bo->api_key );
+                        $status_class   = ( 'active' === $bo->status ) ? 'tm-badge-synced' : 'tm-badge-warning';
+                        $status_label   = ucfirst( $bo->status );
+                    ?>
+                    <tr id="tm-bo-row-<?php echo esc_attr( $bo->id ); ?>">
+                        <td><strong><?php echo esc_html( $bo->name ); ?></strong></td>
+                        <td><code><?php echo esc_html( $bo->slug ); ?></code></td>
+                        <td><code style="font-size: 11px;"><?php echo esc_html( $masked_key ); ?></code></td>
+                        <td><?php echo esc_html( strtoupper( $bo->currency ) ); ?></td>
+                        <td><?php echo esc_html( $bo_event_count ); ?></td>
+                        <td><?php echo esc_html( $bo->last_sync ? $bo->last_sync : 'Never' ); ?></td>
+                        <td><span class="tm-badge <?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span></td>
+                        <td>
+                            <button type="button" class="button button-small tm-bo-test" data-id="<?php echo esc_attr( $bo->id ); ?>"><?php esc_html_e( 'Test', 'tailor-made' ); ?></button>
+                            <button type="button" class="button button-small tm-bo-toggle" data-id="<?php echo esc_attr( $bo->id ); ?>"><?php echo esc_html( 'active' === $bo->status ? 'Pause' : 'Activate' ); ?></button>
+                            <button type="button" class="button button-small tm-bo-remove" style="color:#a00;" data-id="<?php echo esc_attr( $bo->id ); ?>" data-name="<?php echo esc_attr( $bo->name ); ?>"><?php esc_html_e( 'Remove', 'tailor-made' ); ?></button>
+                            <span class="tm-bo-action-result" id="tm-bo-result-<?php echo esc_attr( $bo->id ); ?>" style="margin-left: 5px;"></span>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php else : ?>
+            <p style="color: #666;"><em><?php esc_html_e( 'No box offices configured yet. Add one below to get started.', 'tailor-made' ); ?></em></p>
+            <?php endif; ?>
 
-                <button type="button" class="button" id="tm-test-btn"><?php esc_html_e( 'Test Connection', 'tailor-made' ); ?></button>
-                <span id="tm-test-result" style="margin-left: 10px;"></span>
+            <!-- Add Box Office Form -->
+            <div style="margin-top: 15px; padding: 15px; background: #f9f9f9; border: 1px solid #ccd0d4; border-radius: 4px;">
+                <h3 style="margin-top: 0;"><?php esc_html_e( 'Add Box Office', 'tailor-made' ); ?></h3>
+                <p class="description" style="margin-bottom: 10px;"><?php esc_html_e( 'Paste a Ticket Tailor API key (starts with sk_). The box office name and currency will be auto-detected.', 'tailor-made' ); ?></p>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <input type="password" id="tm-bo-add-key" class="regular-text" placeholder="sk_..." style="max-width: 400px;" />
+                    <button type="button" class="button" onclick="
+                        var el = document.getElementById('tm-bo-add-key');
+                        el.type = el.type === 'password' ? 'text' : 'password';
+                    "><?php esc_html_e( 'Show/Hide', 'tailor-made' ); ?></button>
+                    <button type="button" class="button button-primary" id="tm-bo-add-btn"><?php esc_html_e( 'Test & Add', 'tailor-made' ); ?></button>
+                    <span id="tm-bo-add-result"></span>
+                </div>
             </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
 
             <!-- Sync Status -->
             <div class="postbox" style="padding: 15px;">
@@ -421,6 +680,17 @@ class Tailor_Made_Admin {
                             <?php if ( ! empty( $last_result['errors'] ) ) : ?>
                                 <br><span style="color:red;">Errors: <?php echo esc_html( implode( ', ', $last_result['errors'] ) ); ?></span>
                             <?php endif; ?>
+                            <?php if ( ! empty( $last_result['box_offices'] ) ) : ?>
+                                <br><small style="color: #666;">
+                                <?php
+                                $parts = array();
+                                foreach ( $last_result['box_offices'] as $slug => $bo_result ) {
+                                    $parts[] = esc_html( $bo_result['name'] ) . ': +' . intval( $bo_result['created'] ) . ' /' . intval( $bo_result['updated'] ) . 'u /-' . intval( $bo_result['deleted'] );
+                                }
+                                echo implode( ' &nbsp;|&nbsp; ', $parts );
+                                ?>
+                                </small>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endif; ?>
@@ -438,8 +708,30 @@ class Tailor_Made_Admin {
                     </tr>
                 </table>
 
-                <button type="button" class="button button-primary" id="tm-sync-btn"><?php esc_html_e( 'Sync Now', 'tailor-made' ); ?></button>
+                <button type="button" class="button button-primary" id="tm-sync-btn"><?php esc_html_e( 'Sync All', 'tailor-made' ); ?></button>
                 <span id="tm-sync-result" style="margin-left: 10px;"></span>
+            </div>
+
+            <!-- Settings -->
+            <div class="postbox" style="padding: 15px;">
+                <h2><?php esc_html_e( 'Settings', 'tailor-made' ); ?></h2>
+                <form method="post" action="options.php">
+                    <?php settings_fields( 'tailor_made_settings' ); ?>
+                    <table class="form-table">
+                        <tr>
+                            <th><?php esc_html_e( 'Uninstall', 'tailor-made' ); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="tailor_made_delete_events_on_uninstall" value="1"
+                                        <?php checked( get_option( 'tailor_made_delete_events_on_uninstall', 0 ) ); ?> />
+                                    <?php esc_html_e( 'Delete all synced events when plugin is removed', 'tailor-made' ); ?>
+                                </label>
+                                <p class="description"><?php esc_html_e( 'When checked, deleting this plugin will also remove all TT Event posts and their metadata.', 'tailor-made' ); ?></p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button( __( 'Save Settings', 'tailor-made' ) ); ?>
+                </form>
             </div>
 
         </div>
@@ -461,6 +753,7 @@ class Tailor_Made_Admin {
                     <thead>
                         <tr>
                             <th><?php esc_html_e( 'Event Name', 'tailor-made' ); ?></th>
+                            <th><?php esc_html_e( 'Box Office', 'tailor-made' ); ?></th>
                             <th><?php esc_html_e( 'TT Status', 'tailor-made' ); ?></th>
                             <th><?php esc_html_e( 'WP Status', 'tailor-made' ); ?></th>
                             <th><?php esc_html_e( 'Sync Status', 'tailor-made' ); ?></th>
@@ -482,73 +775,176 @@ class Tailor_Made_Admin {
                 return div.innerHTML;
             }
 
-            // Test Connection
-            document.getElementById('tm-test-btn').addEventListener('click', function() {
-                var btn = this;
-                var result = document.getElementById('tm-test-result');
-                btn.disabled = true;
-                result.textContent = 'Testing...';
-
+            function ajaxPost(action, params, callback) {
+                var body = 'action=' + action + '&nonce=' + nonce;
+                if (params) {
+                    Object.keys(params).forEach(function(k) {
+                        body += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+                    });
+                }
                 fetch(ajaxurl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=tailor_made_test_connection&nonce=' + nonce
+                    body: body
                 })
                 .then(function(r) { return r.json(); })
-                .then(function(data) {
+                .then(callback)
+                .catch(function(err) {
+                    callback({ success: false, data: err.message || 'Network error' });
+                });
+            }
+
+            /* --- Add Box Office --- */
+            document.getElementById('tm-bo-add-btn').addEventListener('click', function() {
+                var btn    = this;
+                var input  = document.getElementById('tm-bo-add-key');
+                var result = document.getElementById('tm-bo-add-result');
+                var apiKey = input.value.trim();
+
+                if (!apiKey) {
+                    result.innerHTML = '<span style="color:red;">Please enter an API key.</span>';
+                    return;
+                }
+
+                btn.disabled = true;
+                result.textContent = 'Testing & adding...';
+
+                ajaxPost('tailor_made_add_box_office', { api_key: apiKey }, function(data) {
                     btn.disabled = false;
                     if (data.success) {
-                        var ov = data.data.overview;
-                        result.innerHTML = '<span style="color:green;">&#10003; Connected! ' +
-                            (ov ? escHtml(ov.box_office_name) + ' (' + escHtml(ov.currency.code.toUpperCase()) + ')' : '') +
-                            '</span>';
+                        result.innerHTML = '<span style="color:green;">&#10003; ' + escHtml(data.data.message) + '</span>';
+                        input.value = '';
+                        setTimeout(function() { location.reload(); }, 1200);
                     } else {
                         result.innerHTML = '<span style="color:red;">&#10007; ' + escHtml(data.data || 'Failed') + '</span>';
                     }
                 });
             });
 
-            // Sync Now
+            /* --- Per-Box-Office: Test --- */
+            document.querySelectorAll('.tm-bo-test').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var id     = this.getAttribute('data-id');
+                    var result = document.getElementById('tm-bo-result-' + id);
+                    this.disabled = true;
+                    result.textContent = 'Testing...';
+
+                    ajaxPost('tailor_made_test_box_office', { box_office_id: id }, function(data) {
+                        btn.disabled = false;
+                        if (data.success) {
+                            var ov = data.data.overview;
+                            var info = ov ? escHtml(ov.box_office_name) + ' (' + escHtml(ov.currency.code.toUpperCase()) + ')' : '';
+                            result.innerHTML = '<span style="color:green;">&#10003; ' + info + '</span>';
+                        } else {
+                            result.innerHTML = '<span style="color:red;">&#10007; ' + escHtml(data.data || 'Failed') + '</span>';
+                        }
+                    });
+                });
+            });
+
+            /* --- Per-Box-Office: Toggle --- */
+            document.querySelectorAll('.tm-bo-toggle').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var id     = this.getAttribute('data-id');
+                    var result = document.getElementById('tm-bo-result-' + id);
+                    this.disabled = true;
+                    result.textContent = 'Toggling...';
+
+                    ajaxPost('tailor_made_toggle_box_office', { box_office_id: id }, function(data) {
+                        btn.disabled = false;
+                        if (data.success) {
+                            result.innerHTML = '<span style="color:green;">&#10003; ' + escHtml(data.data.message) + '</span>';
+                            setTimeout(function() { location.reload(); }, 1000);
+                        } else {
+                            result.innerHTML = '<span style="color:red;">&#10007; ' + escHtml(data.data || 'Failed') + '</span>';
+                        }
+                    });
+                });
+            });
+
+            /* --- Per-Box-Office: Remove --- */
+            document.querySelectorAll('.tm-bo-remove').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var id     = this.getAttribute('data-id');
+                    var name   = this.getAttribute('data-name');
+                    var result = document.getElementById('tm-bo-result-' + id);
+
+                    var deleteEvents = confirm('Remove box office "' + name + '"?\n\nClick OK to remove.\n\nNote: associated events will be unassigned but kept. To also delete all events for this box office, click Cancel and use the alternative removal option.');
+                    if (!deleteEvents) {
+                        // Ask if they want to delete events too.
+                        if (!confirm('Would you like to DELETE "' + name + '" AND all its synced events?\n\nThis cannot be undone.')) {
+                            return;
+                        }
+                        deleteEvents = true;
+                    } else {
+                        deleteEvents = false;
+                    }
+
+                    this.disabled = true;
+                    result.textContent = 'Removing...';
+
+                    ajaxPost('tailor_made_delete_box_office', {
+                        box_office_id: id,
+                        delete_events: deleteEvents ? '1' : '0'
+                    }, function(data) {
+                        btn.disabled = false;
+                        if (data.success) {
+                            result.innerHTML = '<span style="color:green;">&#10003; ' + escHtml(data.data.message) + '</span>';
+                            setTimeout(function() { location.reload(); }, 1000);
+                        } else {
+                            result.innerHTML = '<span style="color:red;">&#10007; ' + escHtml(data.data || 'Failed') + '</span>';
+                        }
+                    });
+                });
+            });
+
+            /* --- Sync All --- */
             document.getElementById('tm-sync-btn').addEventListener('click', function() {
                 var btn = this;
                 var result = document.getElementById('tm-sync-result');
                 btn.disabled = true;
-                result.textContent = 'Syncing...';
+                result.textContent = 'Syncing all box offices...';
 
-                fetch(ajaxurl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=tailor_made_sync&nonce=' + nonce
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+                ajaxPost('tailor_made_sync', {}, function(data) {
                     btn.disabled = false;
                     if (data.success) {
                         var d = data.data;
-                        result.innerHTML = '<span style="color:green;">&#10003; Done! ' +
-                            'Created: ' + escHtml(String(d.created)) + ', Updated: ' + escHtml(String(d.updated)) + ', Deleted: ' + escHtml(String(d.deleted)) +
-                            '</span>';
-                        setTimeout(function() { location.reload(); }, 1500);
+                        var msg = 'Done! Created: ' + escHtml(String(d.created)) +
+                                  ', Updated: ' + escHtml(String(d.updated)) +
+                                  ', Deleted: ' + escHtml(String(d.deleted));
+
+                        // Per-box-office breakdown.
+                        if (d.box_offices) {
+                            var parts = [];
+                            Object.keys(d.box_offices).forEach(function(slug) {
+                                var bo = d.box_offices[slug];
+                                parts.push(escHtml(bo.name) + ': +' + bo.created + ' /' + bo.updated + 'u /-' + bo.deleted);
+                            });
+                            if (parts.length > 0) {
+                                msg += '<br><small>' + parts.join(' | ') + '</small>';
+                            }
+                        }
+
+                        if (d.errors && d.errors.length > 0) {
+                            msg += '<br><span style="color:red;">Errors: ' + escHtml(d.errors.join(', ')) + '</span>';
+                        }
+
+                        result.innerHTML = '<span style="color:green;">&#10003; ' + msg + '</span>';
+                        setTimeout(function() { location.reload(); }, 2000);
                     } else {
                         result.innerHTML = '<span style="color:red;">&#10007; ' + escHtml(data.data || 'Failed') + '</span>';
                     }
                 });
             });
 
-            // Compare Events
+            /* --- Compare Events --- */
             document.getElementById('tm-compare-btn').addEventListener('click', function() {
                 var btn = this;
                 var status = document.getElementById('tm-compare-status');
                 btn.disabled = true;
                 status.textContent = 'Loading...';
 
-                fetch(ajaxurl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=tailor_made_compare_events&nonce=' + nonce
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+                ajaxPost('tailor_made_compare_events', {}, function(data) {
                     btn.disabled = false;
                     status.textContent = '';
 
@@ -566,13 +962,14 @@ class Tailor_Made_Admin {
                     tbody.innerHTML = '';
 
                     if (d.rows.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5">No events found.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6">No events found.</td></tr>';
                     } else {
                         d.rows.forEach(function(row) {
                             var badgeClass = 'tm-badge-' + row.sync_status;
                             var label = row.sync_status.charAt(0).toUpperCase() + row.sync_status.slice(1);
                             tbody.innerHTML += '<tr>' +
                                 '<td>' + escHtml(row.name) + '</td>' +
+                                '<td>' + escHtml(row.box_office || '') + '</td>' +
                                 '<td>' + escHtml(row.tt_status) + '</td>' +
                                 '<td>' + escHtml(row.wp_status) + '</td>' +
                                 '<td><span class="tm-badge ' + badgeClass + '">' + label + '</span></td>' +
