@@ -48,12 +48,14 @@ class Tailor_Made_Sync_Logger {
             action VARCHAR(20) NOT NULL DEFAULT '',
             tt_event_id VARCHAR(32) NOT NULL DEFAULT '',
             event_name VARCHAR(255) NOT NULL DEFAULT '',
+            box_office_name VARCHAR(255) NOT NULL DEFAULT '',
             message TEXT NOT NULL,
             details LONGTEXT,
             PRIMARY KEY (id),
             KEY idx_sync_id (sync_id),
             KEY idx_timestamp (timestamp),
-            KEY idx_tt_event_id (tt_event_id)
+            KEY idx_tt_event_id (tt_event_id),
+            KEY idx_box_office (box_office_name)
         ) {$charset};";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -100,11 +102,12 @@ class Tailor_Made_Sync_Logger {
                 'level'       => $level,
                 'action'      => $action,
                 'tt_event_id' => isset( $extra['tt_event_id'] ) ? $extra['tt_event_id'] : '',
-                'event_name'  => isset( $extra['event_name'] ) ? $extra['event_name'] : '',
-                'message'     => $message,
+                'event_name'      => isset( $extra['event_name'] ) ? $extra['event_name'] : '',
+                'box_office_name' => isset( $extra['box_office_name'] ) ? $extra['box_office_name'] : '',
+                'message'         => $message,
                 'details'     => isset( $extra['details'] ) ? wp_json_encode( $extra['details'] ) : null,
             ),
-            array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+            array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
         );
     }
 

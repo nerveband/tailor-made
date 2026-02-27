@@ -11,7 +11,6 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 
 // Always clean up: options, DB table, cron hooks.
 $options_to_delete = array(
-    'tailor_made_api_key',
     'tailor_made_sync_interval',
     'tailor_made_logging_enabled',
     'tailor_made_log_retention_days',
@@ -27,6 +26,10 @@ foreach ( $options_to_delete as $option ) {
 global $wpdb;
 $table_name = $wpdb->prefix . 'tailor_made_sync_log';
 $wpdb->query( "DROP TABLE IF EXISTS {$table_name}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+// Drop the box offices table.
+$bo_table = $wpdb->prefix . 'tailor_made_box_offices';
+$wpdb->query( "DROP TABLE IF EXISTS {$bo_table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 // Clear scheduled cron hooks.
 wp_clear_scheduled_hook( 'tailor_made_sync_cron' );
