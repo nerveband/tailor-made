@@ -67,14 +67,15 @@ class Tailor_Made_Shortcodes {
      */
     public static function shortcode_events( $atts ): string {
         $atts = shortcode_atts( array(
-            'limit'   => 6,
-            'status'  => 'publish',
-            'orderby' => '_tt_start_unix',
-            'order'   => 'ASC',
-            'columns' => 3,
-            'show'    => 'image,title,date,price,location,description,button',
-            'style'   => 'grid',
-            'class'   => '',
+            'limit'      => 6,
+            'status'     => 'publish',
+            'orderby'    => '_tt_start_unix',
+            'order'      => 'ASC',
+            'columns'    => 3,
+            'show'       => 'image,title,date,price,location,description,button',
+            'style'      => 'grid',
+            'class'      => '',
+            'box_office' => '',
         ), $atts, 'tt_events' );
 
         $query_args = array(
@@ -85,6 +86,17 @@ class Tailor_Made_Shortcodes {
             'orderby'        => 'meta_value_num',
             'order'          => strtoupper( $atts['order'] ) === 'DESC' ? 'DESC' : 'ASC',
         );
+
+        if ( ! empty( $atts['box_office'] ) ) {
+            $slugs = array_map( 'sanitize_key', explode( ',', $atts['box_office'] ) );
+            $query_args['tax_query'] = array(
+                array(
+                    'taxonomy' => 'tt_box_office',
+                    'field'    => 'slug',
+                    'terms'    => $slugs,
+                ),
+            );
+        }
 
         $posts = get_posts( $query_args );
 
@@ -173,6 +185,15 @@ class Tailor_Made_Shortcodes {
             return '';
         }
 
+        if ( $field === 'box_office_name' ) {
+            $terms = wp_get_post_terms( $post_id, 'tt_box_office', array( 'fields' => 'names' ) );
+            $value = ( ! is_wp_error( $terms ) && ! empty( $terms ) ) ? $terms[0] : '';
+            if ( empty( $value ) ) {
+                return '';
+            }
+            return '<span class="tt-field tt-field--box_office_name">' . esc_html( $value ) . '</span>';
+        }
+
         $meta_key = '_tt_' . $field;
         $value    = get_post_meta( $post_id, $meta_key, true );
 
@@ -205,8 +226,11 @@ class Tailor_Made_Shortcodes {
      * @return string
      */
     public static function shortcode_upcoming_count( $atts ): string {
-        $count = self::get_upcoming_count();
+        $atts = shortcode_atts( array(
+            'box_office' => '',
+        ), $atts, 'tt_upcoming_count' );
 
+        $count = self::get_upcoming_count( $atts['box_office'] );
         return '<span class="tt-upcoming-count">' . esc_html( $count ) . '</span>';
     }
 
@@ -222,7 +246,13 @@ class Tailor_Made_Shortcodes {
      * @return string
      */
     private static function render_card( WP_Post $post, array $show_fields ): string {
-        $html = '<div class="tt-event-card">';
+        $bo_slug = '';
+        $terms = wp_get_post_terms( $post->ID, 'tt_box_office', array( 'fields' => 'slugs' ) );
+        if ( ! is_wp_error( $terms ) && ! empty( $terms ) ) {
+            $bo_slug = $terms[0];
+        }
+        $bo_class = $bo_slug ? ' tt-box-office-' . esc_attr( $bo_slug ) : '';
+        $html = '<div class="tt-event-card' . $bo_class . '">';
 
         // Image
         if ( in_array( 'image', $show_fields, true ) ) {
@@ -333,10 +363,11 @@ class Tailor_Made_Shortcodes {
     /**
      * Count upcoming events (start time > now).
      *
+     * @param string $box_office Optional comma-separated box office slugs.
      * @return int
      */
-    private static function get_upcoming_count(): int {
-        $posts = get_posts( array(
+    private static function get_upcoming_count( string $box_office = '' ): int {
+        $args = array(
             'post_type'      => Tailor_Made_CPT::POST_TYPE,
             'post_status'    => 'publish',
             'posts_per_page' => -1,
@@ -349,8 +380,20 @@ class Tailor_Made_Shortcodes {
                     'type'    => 'NUMERIC',
                 ),
             ),
-        ) );
+        );
 
+        if ( ! empty( $box_office ) ) {
+            $slugs = array_map( 'sanitize_key', explode( ',', $box_office ) );
+            $args['tax_query'] = array(
+                array(
+                    'taxonomy' => 'tt_box_office',
+                    'field'    => 'slug',
+                    'terms'    => $slugs,
+                ),
+            );
+        }
+
+        $posts = get_posts( $args );
         return count( $posts );
     }
 
