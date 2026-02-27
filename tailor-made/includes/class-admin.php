@@ -1041,7 +1041,23 @@ class Tailor_Made_Admin {
             </div>
 
             <div class="tm-info-section">
-                <h3>Step 3: Filter Events by Keyword</h3>
+                <h3>Step 3: Filter by Box Office</h3>
+                <p>If you have multiple box offices, you can filter a query loop to show events from just one (or several) box offices
+                    using the <code>tt_box_office</code> taxonomy.</p>
+                <ol>
+                    <li>In the query loop settings, find the <strong>Taxonomy Query</strong> section</li>
+                    <li>Select taxonomy: <code>tt_box_office</code> (shown as "Box Office")</li>
+                    <li>Pick one or more box office terms to include</li>
+                    <li>Leave it empty to show events from <strong>all</strong> box offices</li>
+                </ol>
+                <div style="background: #e8f5e9; border: 1px solid #4caf50; border-radius: 4px; padding: 12px; margin-top: 10px;">
+                    <strong>Tip:</strong> Box office terms are automatically created during sync and match the slug you gave
+                    the box office in the Dashboard (e.g. <code>tayseer-seminary</code>). You don't need to create them manually.
+                </div>
+            </div>
+
+            <div class="tm-info-section">
+                <h3>Step 4: Filter Events by Keyword</h3>
                 <p>Ticket Tailor does <strong>not</strong> provide categories or tags for events. To show only specific events
                     on a page, you filter by <strong>keyword in the event title</strong> or by <strong>custom field values</strong>.</p>
 
@@ -1079,7 +1095,7 @@ class Tailor_Made_Admin {
             </div>
 
             <div class="tm-info-section">
-                <h3>Step 4: Sort/Order Events</h3>
+                <h3>Step 5: Sort/Order Events</h3>
                 <p>In the query loop settings, set <strong>Order By</strong> and <strong>Order</strong>:</p>
                 <table class="tm-info-table" style="max-width: 600px;">
                     <thead><tr><th>Order By</th><th>Meta Key (if applicable)</th><th>Order</th><th>Result</th></tr></thead>
@@ -1093,7 +1109,7 @@ class Tailor_Made_Admin {
             </div>
 
             <div class="tm-info-section">
-                <h3>Step 5: Design the Event Card</h3>
+                <h3>Step 6: Design the Event Card</h3>
                 <p>Inside the query loop container, add child elements that use <strong>Dynamic Data</strong> to pull event information.
                     Click the dynamic data icon (lightning bolt) in any text or image field, then select the appropriate tag.</p>
 
@@ -1115,6 +1131,8 @@ class Tailor_Made_Admin {
                         <tr><td>Total capacity</td><td>Text</td><td><code>{cf__tt_total_capacity}</code></td><td>Total ticket capacity</td></tr>
                         <tr><td>Is online?</td><td>Text</td><td><code>{cf__tt_online_event}</code></td><td>"true" or "false"</td></tr>
                         <tr><td>Timezone</td><td>Text</td><td><code>{cf__tt_timezone}</code></td><td>e.g. "America/New_York"</td></tr>
+                        <tr><td>Box office name</td><td>Text</td><td><code>{tt_box_office_name}</code></td><td>e.g. "Tayseer Seminary"</td></tr>
+                        <tr><td>Box office slug</td><td>Text</td><td><code>{tt_box_office_slug}</code></td><td>e.g. "tayseer-seminary"</td></tr>
                     </tbody>
                 </table>
                 <p><strong>Prefix rule:</strong> All custom field tags start with <code>{cf_</code> followed by the meta key.
@@ -1122,7 +1140,7 @@ class Tailor_Made_Admin {
             </div>
 
             <div class="tm-info-section">
-                <h3>Step 6: Add a "Buy Tickets" Button</h3>
+                <h3>Step 7: Add a "Buy Tickets" Button</h3>
                 <ol>
                     <li>Inside the query loop, add a <strong>Button</strong> element</li>
                     <li>Set the button text (e.g. "Get Tickets" or use the dynamic tag <code>{cf__tt_call_to_action}</code>)</li>
@@ -1160,9 +1178,10 @@ class Tailor_Made_Admin {
 
                 <div style="background: #fff8e1; border: 1px solid #ffc107; border-radius: 4px; padding: 12px; margin-top: 10px;">
                     <strong>About Categories:</strong> Ticket Tailor does not provide event categories or tags.
-                    All filtering must be done by <strong>keyword matching</strong> (title search) or <strong>custom field values</strong>
-                    (meta queries on venue, date, price, etc.). If you need category-like behavior, establish a naming convention
-                    in Ticket Tailor (e.g. prefix event names with "Shamail:", "Camp:", "Retreat:") and filter by that keyword.
+                    However, Tailor Made automatically groups events by <strong>box office</strong> using the
+                    <code>tt_box_office</code> taxonomy — this acts as a top-level grouping for your events.
+                    For finer filtering within a box office, use <strong>keyword matching</strong> (title search) or
+                    <strong>custom field values</strong> (meta queries on venue, date, price, etc.).
                 </div>
             </div>
 
@@ -1195,6 +1214,7 @@ class Tailor_Made_Admin {
                         <tr><td><code>_tt_image_header</code></td><td><code>{cf__tt_image_header}</code></td><td>URL</td><td>https://uploads.tickettailor...</td></tr>
                         <tr><td><code>_tt_image_thumbnail</code></td><td><code>{cf__tt_image_thumbnail}</code></td><td>URL</td><td>https://uploads.tickettailor...</td></tr>
                         <tr><td><code>_tt_timezone</code></td><td><code>{cf__tt_timezone}</code></td><td>String</td><td>America/New_York</td></tr>
+                        <tr><td><code>_tt_box_office_id</code></td><td><code>{cf__tt_box_office_id}</code></td><td>Number</td><td>1</td></tr>
                         <tr><td><code>_tt_last_synced</code></td><td><code>{cf__tt_last_synced}</code></td><td>Datetime</td><td>2026-02-17 07:57:30</td></tr>
                     </tbody>
                 </table>
@@ -1218,6 +1238,7 @@ class Tailor_Made_Admin {
                     <thead><tr><th>What</th><th>Where</th></tr></thead>
                     <tbody>
                         <tr><td>All synced events</td><td><strong>Tailor Made &gt; Events</strong> in the admin sidebar</td></tr>
+                        <tr><td>Box office management</td><td><strong>Tailor Made &gt; Dashboard</strong> — add, edit, enable/disable, delete box offices</td></tr>
                         <tr><td>Sync settings &amp; status</td><td><strong>Tailor Made &gt; Dashboard</strong> tab</td></tr>
                         <tr><td>TT vs WP comparison</td><td><strong>Tailor Made &gt; Dashboard</strong> &gt; Load Comparison button</td></tr>
                         <tr><td>Sync internals</td><td><strong>Tailor Made &gt; How Sync Works</strong> tab</td></tr>
@@ -1242,13 +1263,14 @@ class Tailor_Made_Admin {
 
             <div class="tm-info-section">
                 <h3>Sync Cycle</h3>
-                <p>Each sync run follows this sequence:</p>
+                <p>Each sync run follows this sequence, <strong>repeated for each active box office</strong>:</p>
                 <ol>
-                    <li><strong>Fetch</strong> — All events are retrieved from the Ticket Tailor API (paginated, 100 per page).</li>
-                    <li><strong>Match</strong> — Each TT event is matched to a WordPress post by the <code>_tt_event_id</code> meta field.</li>
-                    <li><strong>Create</strong> — Events not yet in WordPress are created as new <code>tt_event</code> posts.</li>
+                    <li><strong>Select Box Office</strong> — The sync engine iterates through all active box offices, processing each one independently with its own API key.</li>
+                    <li><strong>Fetch</strong> — All events are retrieved from the Ticket Tailor API for that box office (paginated, 100 per page).</li>
+                    <li><strong>Match</strong> — Each TT event is matched to a WordPress post by <code>_tt_event_id</code> + <code>_tt_box_office_id</code>.</li>
+                    <li><strong>Create</strong> — Events not yet in WordPress are created as new <code>tt_event</code> posts and tagged with the <code>tt_box_office</code> taxonomy.</li>
                     <li><strong>Update</strong> — Events already in WordPress are updated with the latest data from TT.</li>
-                    <li><strong>Delete Orphans</strong> — WordPress posts whose TT event no longer exists in the API are permanently deleted.</li>
+                    <li><strong>Delete Orphans</strong> — WordPress posts belonging to <em>this box office</em> whose TT event no longer exists in the API are permanently deleted. Orphan deletion is scoped — it only affects events from the box office being synced.</li>
                 </ol>
             </div>
 
@@ -1311,6 +1333,7 @@ class Tailor_Made_Admin {
                         <tr><td><code>_tt_price_display</code></td><td><em>computed</em></td><td>Formatted price range (e.g. "$10 - $25")</td></tr>
                         <tr><td><code>_tt_total_capacity</code></td><td><em>computed</em></td><td>Sum of all ticket quantities</td></tr>
                         <tr><td><code>_tt_tickets_remaining</code></td><td><em>computed</em></td><td>Capacity minus issued</td></tr>
+                        <tr><td><code>_tt_box_office_id</code></td><td><em>internal</em></td><td>Box office table ID (links event to its source box office)</td></tr>
                         <tr><td><code>_tt_last_synced</code></td><td><em>internal</em></td><td>Timestamp of last sync</td></tr>
                         <tr><td><code>_tt_raw_json</code></td><td><em>full response</em></td><td>Complete API response (JSON)</td></tr>
                     </tbody>
@@ -1336,11 +1359,25 @@ class Tailor_Made_Admin {
 
             <div class="tm-info-section">
                 <h3>Matching Logic</h3>
-                <p>Events are matched between Ticket Tailor and WordPress using the <code>_tt_event_id</code> post meta field.
-                    Each Ticket Tailor event has a unique ID (e.g. <code>ev_7669695</code>) that is stored when the event is first created in WordPress.
-                    On subsequent syncs, this ID is used to find and update the correct post.</p>
-                <p>If a Ticket Tailor event ID is no longer returned by the API, the corresponding WordPress post is considered
-                    an <strong>orphan</strong> and is permanently deleted during sync.</p>
+                <p>Events are matched between Ticket Tailor and WordPress using <strong>two fields</strong>:
+                    <code>_tt_event_id</code> (the Ticket Tailor event ID, e.g. <code>ev_7669695</code>) and
+                    <code>_tt_box_office_id</code> (the internal box office record ID). This compound match ensures
+                    that the same TT event ID from different box offices won't collide.</p>
+                <p>If a Ticket Tailor event ID is no longer returned by the API for a given box office, the corresponding
+                    WordPress post is considered an <strong>orphan</strong> and is permanently deleted during sync.
+                    Orphan deletion is <strong>scoped per box office</strong> — only events belonging to the box office
+                    being synced are eligible for deletion.</p>
+            </div>
+
+            <div class="tm-info-section">
+                <h3>Box Office Isolation</h3>
+                <p>Each box office syncs <strong>independently</strong>. This provides several guarantees:</p>
+                <ul>
+                    <li><strong>Independent sync:</strong> Each box office uses its own API key and fetches its own events. One box office's sync does not affect another's.</li>
+                    <li><strong>Scoped orphan deletion:</strong> When an event is removed from Ticket Tailor, the orphan cleanup only deletes posts belonging to that specific box office. Events from other box offices are untouched.</li>
+                    <li><strong>Fault isolation:</strong> If one box office's API key is invalid or the API call fails, the sync continues with the remaining box offices. One failure doesn't block the others.</li>
+                    <li><strong>Taxonomy tagging:</strong> Every event is tagged with its box office's <code>tt_box_office</code> taxonomy term, making it easy to filter in queries.</li>
+                </ul>
             </div>
 
         </div>
@@ -1890,6 +1927,7 @@ class Tailor_Made_Admin {
                         <tr><td><code>columns</code></td><td><code>3</code></td><td><?php esc_html_e( 'Number of grid columns', 'tailor-made' ); ?></td></tr>
                         <tr><td><code>show</code></td><td><code>image,title,date,price,location,description,button</code></td><td><?php esc_html_e( 'Comma-separated list of fields to display', 'tailor-made' ); ?></td></tr>
                         <tr><td><code>style</code></td><td><code>grid</code></td><td><?php esc_html_e( 'Layout style: grid or list', 'tailor-made' ); ?></td></tr>
+                        <tr><td><code>box_office</code></td><td><em><?php esc_html_e( 'all', 'tailor-made' ); ?></em></td><td><?php esc_html_e( 'Filter by box office slug. Comma-separated for multiple. Omit to show all.', 'tailor-made' ); ?></td></tr>
                         <tr><td><code>class</code></td><td><code></code></td><td><?php esc_html_e( 'Additional CSS class', 'tailor-made' ); ?></td></tr>
                     </tbody>
                 </table>
@@ -1925,7 +1963,7 @@ class Tailor_Made_Admin {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>field</code></td><td><em><?php esc_html_e( 'required', 'tailor-made' ); ?></em></td><td><?php esc_html_e( 'Meta key without _tt_ prefix (e.g. venue_name, price_display)', 'tailor-made' ); ?></td></tr>
+                        <tr><td><code>field</code></td><td><em><?php esc_html_e( 'required', 'tailor-made' ); ?></em></td><td><?php esc_html_e( 'Meta key without _tt_ prefix (e.g. venue_name, price_display). Also supports box_office_name as a virtual field.', 'tailor-made' ); ?></td></tr>
                         <tr><td><code>id</code></td><td><em><?php esc_html_e( 'current post', 'tailor-made' ); ?></em></td><td><?php esc_html_e( 'WP post ID or TT event ID', 'tailor-made' ); ?></td></tr>
                     </tbody>
                 </table>
@@ -1934,7 +1972,35 @@ class Tailor_Made_Admin {
             <div class="tm-info-section">
                 <h3>[tt_upcoming_count]</h3>
                 <p><?php esc_html_e( 'Output the number of upcoming events (start date in the future).', 'tailor-made' ); ?></p>
-                <p><?php esc_html_e( 'No attributes. Returns a count wrapped in a span.', 'tailor-made' ); ?></p>
+                <table class="tm-info-table">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Attribute', 'tailor-made' ); ?></th>
+                            <th><?php esc_html_e( 'Default', 'tailor-made' ); ?></th>
+                            <th><?php esc_html_e( 'Description', 'tailor-made' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>box_office</code></td><td><em><?php esc_html_e( 'all', 'tailor-made' ); ?></em></td><td><?php esc_html_e( 'Filter by box office slug. Omit to count all upcoming events.', 'tailor-made' ); ?></td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="tm-info-section">
+                <h3>[tt_roster_box_office]</h3>
+                <p><?php esc_html_e( 'Render an attendee roster for all events in a box office.', 'tailor-made' ); ?></p>
+                <table class="tm-info-table">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Attribute', 'tailor-made' ); ?></th>
+                            <th><?php esc_html_e( 'Default', 'tailor-made' ); ?></th>
+                            <th><?php esc_html_e( 'Description', 'tailor-made' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>slug</code></td><td><em><?php esc_html_e( 'required', 'tailor-made' ); ?></em></td><td><?php esc_html_e( 'Box office slug (e.g. tayseer-seminary)', 'tailor-made' ); ?></td></tr>
+                    </tbody>
+                </table>
             </div>
 
             <div class="tm-info-section">
@@ -1974,6 +2040,26 @@ class Tailor_Made_Admin {
                         <tr>
                             <td><?php esc_html_e( 'Upcoming event count', 'tailor-made' ); ?></td>
                             <td><code class="tm-copyable">[tt_upcoming_count]</code> <button type="button" class="button button-small tm-copy-btn" data-code="[tt_upcoming_count]"><?php esc_html_e( 'Copy', 'tailor-made' ); ?></button></td>
+                        </tr>
+                        <tr>
+                            <td><?php esc_html_e( 'Events from one box office', 'tailor-made' ); ?></td>
+                            <td><code class="tm-copyable">[tt_events box_office="tayseer-seminary"]</code> <button type="button" class="button button-small tm-copy-btn" data-code='[tt_events box_office="tayseer-seminary"]'><?php esc_html_e( 'Copy', 'tailor-made' ); ?></button></td>
+                        </tr>
+                        <tr>
+                            <td><?php esc_html_e( 'Events from multiple box offices', 'tailor-made' ); ?></td>
+                            <td><code class="tm-copyable">[tt_events box_office="tayseer-seminary,tayseer-travel"]</code> <button type="button" class="button button-small tm-copy-btn" data-code='[tt_events box_office="tayseer-seminary,tayseer-travel"]'><?php esc_html_e( 'Copy', 'tailor-made' ); ?></button></td>
+                        </tr>
+                        <tr>
+                            <td><?php esc_html_e( 'Upcoming count for one box office', 'tailor-made' ); ?></td>
+                            <td><code class="tm-copyable">[tt_upcoming_count box_office="tayseer-seminary"]</code> <button type="button" class="button button-small tm-copy-btn" data-code='[tt_upcoming_count box_office="tayseer-seminary"]'><?php esc_html_e( 'Copy', 'tailor-made' ); ?></button></td>
+                        </tr>
+                        <tr>
+                            <td><?php esc_html_e( 'Box office name for current event', 'tailor-made' ); ?></td>
+                            <td><code class="tm-copyable">[tt_event_field field="box_office_name"]</code> <button type="button" class="button button-small tm-copy-btn" data-code='[tt_event_field field="box_office_name"]'><?php esc_html_e( 'Copy', 'tailor-made' ); ?></button></td>
+                        </tr>
+                        <tr>
+                            <td><?php esc_html_e( 'Box office roster', 'tailor-made' ); ?></td>
+                            <td><code class="tm-copyable">[tt_roster_box_office slug="tayseer-seminary"]</code> <button type="button" class="button button-small tm-copy-btn" data-code='[tt_roster_box_office slug="tayseer-seminary"]'><?php esc_html_e( 'Copy', 'tailor-made' ); ?></button></td>
                         </tr>
                     </tbody>
                 </table>
@@ -2072,6 +2158,25 @@ class Tailor_Made_Admin {
         <!-- Changelog -->
         <div class="postbox" style="padding: 20px; max-width: 960px; margin-top: 20px;">
             <h2 style="margin-top: 0;">Changelog</h2>
+
+            <div class="tm-info-section">
+                <h3>v2.0.0 <span style="font-weight: normal; color: #666; font-size: 13px;">— February 2026</span></h3>
+                <ul style="line-height: 1.8;">
+                    <li><strong>New:</strong> Multi-box-office support — manage multiple Ticket Tailor box offices under one WordPress install</li>
+                    <li><strong>New:</strong> Box office management UI in Dashboard — add, edit, enable/disable, delete box offices</li>
+                    <li><strong>New:</strong> <code>tt_box_office</code> taxonomy — events are automatically tagged with their source box office</li>
+                    <li><strong>New:</strong> <code>box_office</code> attribute on <code>[tt_events]</code> and <code>[tt_upcoming_count]</code> shortcodes</li>
+                    <li><strong>New:</strong> <code>box_office_name</code> virtual field for <code>[tt_event_field]</code></li>
+                    <li><strong>New:</strong> <code>[tt_roster_box_office]</code> shortcode — per-box-office attendee rosters</li>
+                    <li><strong>New:</strong> Bricks dynamic data tags: <code>{tt_box_office_name}</code> and <code>{tt_box_office_slug}</code></li>
+                    <li><strong>New:</strong> Per-box-office rosters via Magic Links</li>
+                    <li><strong>Security:</strong> API key encryption at rest using WordPress salts</li>
+                    <li><strong>Improved:</strong> Scoped orphan deletion — each box office's cleanup only affects its own events</li>
+                    <li><strong>Improved:</strong> Event matching uses compound key (<code>_tt_event_id</code> + <code>_tt_box_office_id</code>)</li>
+                    <li><strong>Improved:</strong> Fault isolation — one box office failing doesn't block others from syncing</li>
+                    <li><strong>Migration:</strong> Automatic migration from single API key to multi-box-office on upgrade</li>
+                </ul>
+            </div>
 
             <div class="tm-info-section">
                 <h3>v1.3.0 <span style="font-weight: normal; color: #666; font-size: 13px;">— February 2026</span></h3>

@@ -4,13 +4,17 @@ Unofficial Ticket Tailor API integration for WordPress. Syncs events, ticket typ
 
 ## What it does
 
+- Supports multiple Ticket Tailor box offices under one WordPress install
 - Pulls all events from the Ticket Tailor API into a `tt_event` custom post type
 - Stores every field as post meta: dates, venue, ticket types, prices, checkout URLs, images, capacity, availability
-- Registers 27 dynamic data tags in Bricks Builder (under the "Ticket Tailor" group)
+- Registers 29 dynamic data tags in Bricks Builder (under the "Ticket Tailor" group)
+- Tags each event with its source box office via the `tt_box_office` taxonomy
 - Works with Bricks query loops so you can build event grids, cards, and listings
+- Shortcodes for displaying events without a page builder
 - Auto-syncs every hour via WP-Cron
 - Manual sync button in the admin dashboard
-- Cleans up events that are deleted from Ticket Tailor
+- Cleans up events that are deleted from Ticket Tailor (scoped per box office)
+- API key encryption at rest
 - Auto-updates from GitHub releases
 
 ## Requirements
@@ -35,13 +39,38 @@ Activate the plugin in WordPress.
 
 ## Configure
 
-1. Go to **Tailor Made** in the WordPress admin sidebar
-2. Enter your Ticket Tailor API key (starts with `sk_`)
-3. Click **Save Settings**
-4. Click **Test Connection** to verify
-5. Click **Sync Now** to pull events
+1. Go to **Tailor Made > Dashboard** in the WordPress admin sidebar
+2. Click **Add Box Office**
+3. Enter a name (e.g. "Tayseer Seminary") and the API key from Ticket Tailor (starts with `sk_`)
+4. Click **Save** — the API key is encrypted before being stored
+5. Click **Test Connection** to verify the key works
+6. Click **Sync Now** to pull events from all active box offices
 
-Your API key is in Ticket Tailor under Box Office Settings > API Keys.
+Your API key is in Ticket Tailor under Box Office Settings > API Keys. Each box office in Ticket Tailor has its own API key.
+
+## Multiple Box Offices
+
+Tailor Made supports multiple Ticket Tailor box offices under a single WordPress install. Each box office has its own API key and syncs independently.
+
+**How it works:**
+
+- Add box offices via the **Dashboard** tab — each gets a name, slug, and API key
+- Events from each box office are tagged with the `tt_box_office` taxonomy term (matching the box office slug)
+- Each event stores a `_tt_box_office_id` meta field linking it to the internal box office record
+- Orphan deletion is scoped per box office — removing one box office only deletes its events
+- One box office failing to sync does not affect the others
+
+**Filtering by box office:**
+
+- **Bricks query loops:** Add a taxonomy filter on `tt_box_office` and select the term(s) you want
+- **Shortcodes:** Use the `box_office` attribute: `[tt_events box_office="tayseer-seminary"]`
+- **WP_Query:** Use a standard `tax_query` on `tt_box_office`
+
+**Managing box offices:**
+
+- **Enable/disable** a box office without deleting it (pauses sync)
+- **Delete** a box office to remove it and all its events
+- **Edit** the name or API key at any time
 
 ## Auto-sync
 
@@ -87,6 +116,8 @@ All tags appear under the "Ticket Tailor" group in the Bricks dynamic data picke
 | `{tt_total_orders}` | Number of orders placed |
 | `{tt_currency}` | Currency code (`usd`, `gbp`, etc.) |
 | `{tt_timezone}` | Timezone (`America/New_York`) |
+| `{tt_box_office_name}` | Box office display name |
+| `{tt_box_office_slug}` | Box office slug (for filtering) |
 
 ## Using with Bricks query loop
 
@@ -121,7 +152,74 @@ All event data is stored as post meta on the `tt_event` CPT. You can query these
 | `_tt_max_price` | int | Highest price in cents |
 | `_tt_total_capacity` | int | Total seats |
 | `_tt_tickets_remaining` | int | Remaining seats |
+| `_tt_box_office_id` | int | Internal box office table ID |
 | `_tt_raw_json` | JSON | Complete API response |
+
+## Shortcodes
+
+Display events anywhere without Bricks Builder.
+
+### `[tt_events]`
+
+Shows a grid or list of events.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `limit` | `6` | Number of events to show |
+| `status` | `publish` | Post status filter |
+| `orderby` | `_tt_start_unix` | Meta key to sort by |
+| `order` | `ASC` | Sort direction |
+| `columns` | `3` | Grid columns |
+| `show` | `image,title,date,price,location,description,button` | Fields to display |
+| `style` | `grid` | Layout: `grid` or `list` |
+| `box_office` | *(all)* | Filter by box office slug. Comma-separated for multiple |
+
+### `[tt_event]`
+
+Shows a single event card.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `id` | *required* | WP post ID or TT event ID (`ev_xxx`) |
+| `show` | `image,title,date,price,location,description,button` | Fields to display |
+
+### `[tt_event_field]`
+
+Outputs a single event field value inline.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `field` | *required* | Meta key without `_tt_` prefix (e.g. `venue_name`). Also supports `box_office_name` as a virtual field |
+| `id` | *current post* | WP post ID or TT event ID |
+
+### `[tt_upcoming_count]`
+
+Outputs the number of upcoming events.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `box_office` | *(all)* | Filter by box office slug |
+
+### `[tt_roster_box_office]`
+
+Renders an attendee roster for all events in a box office.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `slug` | *required* | Box office slug |
+
+### Examples
+
+```
+[tt_events]                                        — All events, default grid
+[tt_events box_office="tayseer-seminary"]           — Events from one box office
+[tt_events box_office="tayseer-seminary,tayseer-travel" limit="3"]  — Multiple box offices
+[tt_events style="list" columns="1"]               — List layout
+[tt_upcoming_count]                                — Count of all upcoming events
+[tt_upcoming_count box_office="tayseer-seminary"]  — Count for one box office
+[tt_event_field field="box_office_name"]            — Box office name for current event
+[tt_roster_box_office slug="tayseer-seminary"]      — Roster for a box office
+```
 
 ## Ticket Tailor API coverage
 

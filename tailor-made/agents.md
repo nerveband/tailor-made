@@ -6,16 +6,18 @@ Development notes, quirks, and patterns for AI agents working on this plugin.
 
 ```
 tailor-made/
-├── tailor-made.php              # Main plugin file (requires, hooks, cron)
-├── agents.md                    # This file
+├── tailor-made.php                # Main plugin file (requires, hooks, cron)
+├── agents.md                      # This file
+├── prompts/                       # AI workflow prompt templates
 └── includes/
-    ├── class-api-client.php     # TT API wrapper (DO NOT MODIFY)
-    ├── class-cpt.php            # tt_event post type (DO NOT MODIFY)
-    ├── class-sync-engine.php    # Sync logic + logger integration
-    ├── class-sync-logger.php    # DB-backed logging
-    ├── class-admin.php          # Admin UI (5 tabs)
-    ├── class-bricks-provider.php # Bricks dynamic data (DO NOT MODIFY)
-    └── class-github-updater.php # Auto-update from GitHub (DO NOT MODIFY)
+    ├── class-api-client.php       # TT API wrapper (DO NOT MODIFY)
+    ├── class-box-office-manager.php # Multi-box-office CRUD, encryption, DB table
+    ├── class-cpt.php              # tt_event post type + tt_box_office taxonomy (DO NOT MODIFY)
+    ├── class-sync-engine.php      # Sync logic — iterates box offices, scoped orphan deletion
+    ├── class-sync-logger.php      # DB-backed logging
+    ├── class-admin.php            # Admin UI (7 tabs: Dashboard, How To Use, How Sync Works, Shortcodes, Magic Links, Sync Log, About)
+    ├── class-bricks-provider.php  # Bricks dynamic data (DO NOT MODIFY)
+    └── class-github-updater.php   # Auto-update from GitHub (DO NOT MODIFY)
 ```
 
 ## Server Access
@@ -42,7 +44,7 @@ ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp plugin deactivate tailo
 ### Ticket Tailor API
 - **Auth:** Basic auth with API key as username, empty password: `base64_encode($api_key . ':')`
 - **Pagination:** Uses `starting_after` param with last item's ID (not page numbers)
-- **No categories/tags:** TT provides NO categorization for events — filtering must be done by keyword search on title or meta queries
+- **No categories/tags:** TT provides NO categorization for events — but Tailor Made groups events by box office via the `tt_box_office` taxonomy. Within a box office, filtering is by keyword search on title or meta queries
 - **Event statuses:** `published`, `live`, `past`, `draft` — no custom statuses
 - **Prices in cents:** All price values are in cents (divide by 100 for display)
 
@@ -56,10 +58,21 @@ ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp plugin deactivate tailo
 - **Bricks content storage:** Page content stored in `_bricks_page_content_2` post meta as a flat JSON array of elements with parent references
 - **CRITICAL — Bricks meta filter bypass:** Bricks hooks on `update_post_metadata` silently block external writes to `_bricks_page_content_2`. Three hooks intercept: `Bricks\Ajax::update_bricks_postmeta`, `Bricks\Ajax::sanitize_bricks_postmeta`, and `Bricks\Query_Filters::qf_update_post_metadata`. **You MUST use `$wpdb->update()` directly** to write Bricks content, then call `wp_cache_delete($post_id, 'post_meta')` and `clean_post_cache($post_id)` to clear caches. Using `update_post_meta()` will silently fail.
 
+### Multi-Box-Office Architecture
+
+- **Box office table:** `{prefix}tailor_made_box_offices` — stores name, slug, encrypted API key, status (active/inactive), created/updated timestamps
+- **API key encryption:** Keys encrypted with `openssl_encrypt()` using WordPress `AUTH_KEY` and `AUTH_SALT` — decrypted on use only
+- **Taxonomy:** `tt_box_office` — each box office gets a term; events are tagged during sync
+- **Meta field:** `_tt_box_office_id` — links each event post to its box office table row
+- **Manager class:** `Tailor_Made_Box_Office_Manager` handles all CRUD, encryption/decryption, and DB migrations
+
 ### Sync Engine
 
+- **Multi-box-office sync:** `sync_all_box_offices()` iterates all active box offices, calling `sync_all()` for each with the box office's own API key
 - **Full replace, not incremental:** Each sync fetches ALL events from TT and overwrites WP data completely
-- **Orphan deletion:** Posts in WP whose `_tt_event_id` is no longer in the API response are permanently deleted (`wp_delete_post($id, true)`)
+- **Scoped orphan deletion:** Posts are only orphan-deleted within the box office being synced — one box office's cleanup never touches another's events
+- **Compound matching:** Events matched by `_tt_event_id` + `_tt_box_office_id` (not just event ID alone)
+- **Fault isolation:** If one box office's API call fails, the sync continues with remaining box offices
 - **Featured image caching:** Images are only re-downloaded when the source URL changes (`_tt_image_header_source` meta tracks the current URL)
 - **Logger integration:** The sync engine creates a `Tailor_Made_Sync_Logger` instance. When logging is disabled, all `->log()` calls are no-ops (checked via `get_option` in constructor)
 
@@ -72,7 +85,7 @@ ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp plugin deactivate tailo
 
 ### Admin UI
 
-- **5 tabs:** Dashboard, How To Use, How Sync Works, Sync Log, About
+- **7 tabs:** Dashboard, How To Use, How Sync Works, Shortcodes, Magic Links, Sync Log, About
 - **Tab routing:** Query param `?page=tailor-made&tab=<tab-slug>`
 - **AJAX endpoints:** All use `tailor_made_nonce` for security
   - `tailor_made_sync` — run sync
@@ -80,6 +93,11 @@ ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp plugin deactivate tailo
   - `tailor_made_compare_events` — TT vs WP comparison
   - `tailor_made_clear_logs` — truncate log table
   - `tailor_made_save_log_settings` — update logging options
+  - `tailor_made_add_box_office` — create a new box office
+  - `tailor_made_edit_box_office` — update box office name/key
+  - `tailor_made_delete_box_office` — remove box office and its events
+  - `tailor_made_test_box_office` — test a box office API key
+  - `tailor_made_toggle_box_office` — enable/disable a box office
 - **Changelog:** Lives in the `render_tab_about()` method — update it when making changes
 
 ## Version Bumping
@@ -94,7 +112,12 @@ When releasing a new version:
 
 ### Run a sync manually via CLI
 ```bash
-ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp eval 'require_once ABSPATH . \"wp-content/plugins/tailor-made/tailor-made.php\"; \$e = new Tailor_Made_Sync_Engine(); print_r(\$e->sync_all());'"
+ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp eval 'print_r(Tailor_Made_Sync_Engine::sync_all_box_offices());'"
+```
+
+### List box offices
+```bash
+ssh runcloud@23.94.202.65 "cd ~/webapps/TS-Staging && wp db query \"SELECT id, name, slug, status FROM wp_tailor_made_box_offices\""
 ```
 
 ### Check log entries
