@@ -25,6 +25,12 @@ class Tailor_Made_Admin {
         add_action( 'wp_ajax_tailor_made_rotate_roster_link', [ __CLASS__, 'ajax_rotate_roster_link' ] );
         add_action( 'wp_ajax_tailor_made_revoke_roster_link', [ __CLASS__, 'ajax_revoke_roster_link' ] );
 
+        // Event visibility column + toggle.
+        add_filter( 'manage_tt_event_posts_columns', [ __CLASS__, 'add_visibility_column' ] );
+        add_action( 'manage_tt_event_posts_custom_column', [ __CLASS__, 'render_visibility_column' ], 10, 2 );
+        add_action( 'wp_ajax_tailor_made_toggle_visibility', [ __CLASS__, 'ajax_toggle_visibility' ] );
+        add_action( 'admin_footer-edit.php', [ __CLASS__, 'visibility_toggle_assets' ] );
+
         // Box Office management AJAX.
         add_action( 'wp_ajax_tailor_made_add_box_office', [ __CLASS__, 'ajax_add_box_office' ] );
         add_action( 'wp_ajax_tailor_made_edit_box_office', [ __CLASS__, 'ajax_edit_box_office' ] );
@@ -66,6 +72,11 @@ class Tailor_Made_Admin {
         ] );
 
         register_setting( 'tailor_made_settings', 'tailor_made_delete_events_on_uninstall', [
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
+        ] );
+
+        register_setting( 'tailor_made_settings', 'tailor_made_draft_as_draft', [
             'sanitize_callback' => 'absint',
             'default'           => 0,
         ] );
@@ -235,6 +246,216 @@ class Tailor_Made_Admin {
             'tt_count' => $tt_total,
             'wp_count' => count( $wp_posts ),
         ) );
+    }
+
+    /* ------------------------------------------------------------------
+     * Event visibility column + toggle
+     * ----------------------------------------------------------------*/
+
+    /**
+     * Add custom columns to the Events list table.
+     */
+    public static function add_visibility_column( $columns ) {
+        $columns['tt_attendees']   = __( 'Attendees', 'tailor-made' );
+        $columns['tt_roster_link'] = __( 'Roster Link', 'tailor-made' );
+        $columns['tt_visibility']  = __( 'Site Visibility', 'tailor-made' );
+        return $columns;
+    }
+
+    /**
+     * Render custom column content.
+     */
+    public static function render_visibility_column( $column, $post_id ) {
+        if ( 'tt_attendees' === $column ) {
+            $count = get_post_meta( $post_id, '_tt_total_issued_tickets', true );
+            echo $count ? esc_html( $count ) : '—';
+            return;
+        }
+
+        if ( 'tt_roster_link' === $column ) {
+            $token = get_post_meta( $post_id, '_tt_roster_token', true );
+            if ( $token ) {
+                $url = Tailor_Made_Magic_Links::get_roster_url( $post_id );
+                printf(
+                    '<span class="tt-roster-icons" data-url="%s">'
+                    . '<a href="%s" target="_blank" title="%s" class="tt-roster-open"><span class="dashicons dashicons-admin-links"></span></a> '
+                    . '<button type="button" class="button-link tt-roster-copy" title="%s"><span class="dashicons dashicons-clipboard"></span></button>'
+                    . '</span>',
+                    esc_attr( $url ),
+                    esc_url( $url ),
+                    esc_attr__( 'Open roster', 'tailor-made' ),
+                    esc_attr__( 'Copy roster URL', 'tailor-made' )
+                );
+            } else {
+                printf(
+                    '<button type="button" class="button button-small tt-roster-generate" data-post-id="%d">%s</button>',
+                    esc_attr( $post_id ),
+                    esc_html__( 'Generate', 'tailor-made' )
+                );
+            }
+            return;
+        }
+
+        if ( 'tt_visibility' !== $column ) {
+            return;
+        }
+        $hidden = get_post_meta( $post_id, '_tt_hidden_on_site', true );
+        $icon   = $hidden ? 'hidden' : 'visibility';
+        $title  = $hidden ? __( 'Hidden — click to show', 'tailor-made' ) : __( 'Visible — click to hide', 'tailor-made' );
+        printf(
+            '<button type="button" class="tt-visibility-toggle button-link" data-post-id="%d" title="%s"><span class="dashicons dashicons-%s"></span></button>',
+            esc_attr( $post_id ),
+            esc_attr( $title ),
+            esc_attr( $icon )
+        );
+    }
+
+    /**
+     * AJAX: Toggle per-event visibility.
+     */
+    public static function ajax_toggle_visibility(): void {
+        check_ajax_referer( 'tailor_made_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+
+        $post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+        if ( ! $post_id || get_post_type( $post_id ) !== 'tt_event' ) {
+            wp_send_json_error( 'Invalid post.' );
+        }
+
+        $currently_hidden = get_post_meta( $post_id, '_tt_hidden_on_site', true );
+
+        if ( $currently_hidden ) {
+            // Unhide: clear the flag, restore status from TT.
+            delete_post_meta( $post_id, '_tt_hidden_on_site' );
+            $tt_status = get_post_meta( $post_id, '_tt_status', true );
+            $engine    = new Tailor_Made_Sync_Engine();
+            // Use reflection to access map_status (private) — or just inline the logic.
+            $new_status = 'publish';
+            if ( $tt_status === 'draft' && get_option( 'tailor_made_draft_as_draft', 0 ) ) {
+                $new_status = 'draft';
+            }
+            wp_update_post( array( 'ID' => $post_id, 'post_status' => $new_status ) );
+            wp_send_json_success( array( 'hidden' => false, 'new_status' => $new_status ) );
+        } else {
+            // Hide: set the flag, force draft.
+            update_post_meta( $post_id, '_tt_hidden_on_site', '1' );
+            wp_update_post( array( 'ID' => $post_id, 'post_status' => 'draft' ) );
+            wp_send_json_success( array( 'hidden' => true, 'new_status' => 'draft' ) );
+        }
+    }
+
+    /**
+     * Inline JS/CSS for the visibility toggle on the Events list screen.
+     */
+    public static function visibility_toggle_assets(): void {
+        $screen = get_current_screen();
+        if ( ! $screen || 'edit-tt_event' !== $screen->id ) {
+            return;
+        }
+        ?>
+        <style>
+            .tt-visibility-toggle { cursor: pointer; }
+            .tt-visibility-toggle .dashicons-visibility { color: #2271b1; }
+            .tt-visibility-toggle .dashicons-hidden { color: #a7aaad; }
+            .tt-visibility-toggle:hover .dashicons { opacity: 0.7; }
+            .column-tt_visibility { width: 100px; text-align: center; }
+            .column-tt_attendees { width: 80px; text-align: center; }
+            .column-tt_roster_link { width: 120px; text-align: center; }
+            .tt-roster-icons .dashicons { font-size: 18px; width: 18px; height: 18px; vertical-align: middle; color: #2271b1; cursor: pointer; }
+            .tt-roster-icons .dashicons:hover { opacity: 0.7; }
+            .tt-roster-copy { position: relative; }
+            .tt-roster-copied {
+                position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+                background: #333; color: #fff; padding: 2px 8px; border-radius: 3px;
+                font-size: 11px; white-space: nowrap; pointer-events: none;
+            }
+        </style>
+        <script>
+        jQuery(function($) {
+            var nonce = '<?php echo esc_js( wp_create_nonce( 'tailor_made_nonce' ) ); ?>';
+            // Roster: Generate link.
+            $(document).on('click', '.tt-roster-generate', function(e) {
+                e.preventDefault();
+                var $btn = $(this), postId = $btn.data('post-id');
+                $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Generating…', 'tailor-made' ) ); ?>');
+                $.post(ajaxurl, {
+                    action: 'tailor_made_generate_roster_link',
+                    nonce: nonce,
+                    post_id: postId
+                }, function(response) {
+                    if (response.success) {
+                        var url = response.data.url;
+                        $btn.replaceWith(
+                            '<span class="tt-roster-icons" data-url="' + url + '">'
+                            + '<a href="' + url + '" target="_blank" title="<?php echo esc_js( __( 'Open roster', 'tailor-made' ) ); ?>" class="tt-roster-open"><span class="dashicons dashicons-admin-links"></span></a> '
+                            + '<button type="button" class="button-link tt-roster-copy" title="<?php echo esc_js( __( 'Copy roster URL', 'tailor-made' ) ); ?>"><span class="dashicons dashicons-clipboard"></span></button>'
+                            + '</span>'
+                        );
+                    } else {
+                        $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate', 'tailor-made' ) ); ?>');
+                    }
+                });
+            });
+
+            // Roster: Copy URL.
+            $(document).on('click', '.tt-roster-copy', function(e) {
+                e.preventDefault();
+                var $btn = $(this), url = $btn.closest('.tt-roster-icons').data('url');
+                navigator.clipboard.writeText(url).then(function() {
+                    var $tip = $('<span class="tt-roster-copied"><?php echo esc_js( __( 'Copied!', 'tailor-made' ) ); ?></span>');
+                    $btn.append($tip);
+                    setTimeout(function() { $tip.remove(); }, 1500);
+                });
+            });
+
+            $(document).on('click', '.tt-visibility-toggle', function(e) {
+                e.preventDefault();
+                var $btn = $(this),
+                    postId = $btn.data('post-id'),
+                    $icon = $btn.find('.dashicons');
+
+                $btn.prop('disabled', true);
+
+                $.post(ajaxurl, {
+                    action: 'tailor_made_toggle_visibility',
+                    nonce: nonce,
+                    post_id: postId
+                }, function(response) {
+                    if (response.success) {
+                        if (response.data.hidden) {
+                            $icon.removeClass('dashicons-visibility').addClass('dashicons-hidden');
+                            $btn.attr('title', '<?php echo esc_js( __( 'Hidden — click to show', 'tailor-made' ) ); ?>');
+                        } else {
+                            $icon.removeClass('dashicons-hidden').addClass('dashicons-visibility');
+                            $btn.attr('title', '<?php echo esc_js( __( 'Visible — click to hide', 'tailor-made' ) ); ?>');
+                        }
+                        // Update the status label in the row.
+                        var $row = $btn.closest('tr');
+                        var $status = $row.find('.post-state');
+                        if (response.data.new_status === 'draft') {
+                            if (!$status.length) {
+                                $row.find('.row-title').after(' — <span class="post-state">Draft</span>');
+                            }
+                        } else {
+                            $status.remove();
+                            // Remove the preceding " — " text.
+                            var $title = $row.find('.row-title');
+                            var next = $title[0] && $title[0].nextSibling;
+                            if (next && next.nodeType === 3 && next.textContent.indexOf('—') !== -1) {
+                                next.remove();
+                            }
+                        }
+                    }
+                }).always(function() {
+                    $btn.prop('disabled', false);
+                });
+            });
+        });
+        </script>
+        <?php
     }
 
     /* ------------------------------------------------------------------
@@ -727,6 +948,17 @@ class Tailor_Made_Admin {
                                     <?php esc_html_e( 'Delete all synced events when plugin is removed', 'tailor-made' ); ?>
                                 </label>
                                 <p class="description"><?php esc_html_e( 'When checked, deleting this plugin will also remove all TT Event posts and their metadata.', 'tailor-made' ); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Draft Events', 'tailor-made' ); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="tailor_made_draft_as_draft" value="1"
+                                        <?php checked( get_option( 'tailor_made_draft_as_draft', 0 ) ); ?> />
+                                    <?php esc_html_e( 'Keep Ticket Tailor draft events hidden on the site', 'tailor-made' ); ?>
+                                </label>
+                                <p class="description"><?php esc_html_e( 'When checked, events with "draft" status in Ticket Tailor will be saved as WordPress drafts (not visible to visitors).', 'tailor-made' ); ?></p>
                             </td>
                         </tr>
                     </table>
@@ -2158,6 +2390,18 @@ class Tailor_Made_Admin {
         <!-- Changelog -->
         <div class="postbox" style="padding: 20px; max-width: 960px; margin-top: 20px;">
             <h2 style="margin-top: 0;">Changelog</h2>
+
+            <div class="tm-info-section">
+                <h3>v2.1.0 <span style="font-weight: normal; color: #666; font-size: 13px;">— March 2026</span></h3>
+                <ul style="line-height: 1.8;">
+                    <li><strong>New:</strong> Attendees column on Events list — shows issued ticket count per event</li>
+                    <li><strong>New:</strong> Roster Link column on Events list — generate, open, and copy roster links without leaving the list</li>
+                    <li><strong>New:</strong> Per-event Site Visibility toggle — hide events from the front end while keeping them synced</li>
+                    <li><strong>Improved:</strong> Hidden events stay hidden across syncs (visibility flag preserved)</li>
+                    <li><strong>Fixed:</strong> Draft status mapping now respects the "Draft as Draft" setting</li>
+                    <li><strong>New:</strong> <code>_tt_hidden_on_site</code> meta registered via <code>register_post_meta()</code></li>
+                </ul>
+            </div>
 
             <div class="tm-info-section">
                 <h3>v2.0.0 <span style="font-weight: normal; color: #666; font-size: 13px;">— February 2026</span></h3>

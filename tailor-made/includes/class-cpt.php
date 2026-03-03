@@ -53,6 +53,13 @@ class Tailor_Made_CPT {
                 'type'         => 'string',
             ) );
         }
+
+        // Per-event visibility override (preserved across syncs).
+        register_post_meta( self::POST_TYPE, '_tt_hidden_on_site', array(
+            'show_in_rest' => false,
+            'single'       => true,
+            'type'         => 'string',
+        ) );
     }
 
     /**

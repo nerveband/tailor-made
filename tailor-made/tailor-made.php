@@ -3,7 +3,7 @@
  * Plugin Name: Tailor Made
  * Plugin URI: https://github.com/wavedepth/tailor-made
  * Description: Unofficial Ticket Tailor full API integration for WordPress. Syncs events, ticket types, and more into WordPress for use with Bricks Builder dynamic data.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: wavedepth
  * Author URI: https://wavedepth.com
  * License: GPL-2.0-or-later
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'TAILOR_MADE_VERSION', '2.0.0' );
+define( 'TAILOR_MADE_VERSION', '2.1.0' );
 define( 'TAILOR_MADE_FILE', __FILE__ );
 define( 'TAILOR_MADE_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TAILOR_MADE_URL', plugin_dir_url( __FILE__ ) );

@@ -378,11 +378,18 @@ class Tailor_Made_Sync_Engine {
         $desc   = isset( $event['description'] ) ? $event['description'] : '';
         $status = isset( $event['status'] ) ? $event['status'] : 'draft';
 
+        $wp_status = $this->map_status( $status );
+
+        // Per-event visibility override — if hidden, force draft.
+        if ( get_post_meta( $post_id, '_tt_hidden_on_site', true ) ) {
+            $wp_status = 'draft';
+        }
+
         wp_update_post( array(
             'ID'           => $post_id,
             'post_title'   => $name,
             'post_content' => wp_kses_post( $desc ),
-            'post_status'  => $this->map_status( $status ),
+            'post_status'  => $wp_status,
         ) );
 
         $this->save_meta( $post_id, $event, $bo_id );
@@ -587,8 +594,9 @@ class Tailor_Made_Sync_Engine {
             case 'published':
             case 'live':
             case 'past':
-            case 'draft':
                 return 'publish';
+            case 'draft':
+                return get_option( 'tailor_made_draft_as_draft', 0 ) ? 'draft' : 'publish';
             default:
                 return 'draft';
         }
